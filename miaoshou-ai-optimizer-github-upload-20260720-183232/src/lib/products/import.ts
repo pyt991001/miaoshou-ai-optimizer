@@ -3,6 +3,20 @@ import { prisma } from "@/lib/db/prisma";
 import type { MiaoshouProduct } from "@/lib/miaoshou/types";
 
 export async function upsertMiaoshouProduct(product: MiaoshouProduct) {
+  const variants = product.variants.map((variant) => ({
+    sku: variant.sku,
+    name: variant.name,
+    color: variant.color,
+    size: variant.size,
+    imageUrl: variant.imageUrl,
+    rawData: variant.rawData as Prisma.InputJsonValue
+  }));
+  const images = product.images.map((image) => ({
+    type: image.type as ProductImageType,
+    originalUrl: image.url,
+    sortOrder: image.sortOrder
+  }));
+
   return prisma.product.upsert({
     where: { miaoshouProductId: product.id },
     update: {
@@ -12,7 +26,23 @@ export async function upsertMiaoshouProduct(product: MiaoshouProduct) {
       targetPlatform: product.targetPlatform,
       category: product.category,
       attributes: product.attributes as Prisma.InputJsonValue,
-      description: product.description
+      description: product.description,
+      ...(variants.length > 0
+        ? {
+            variants: {
+              deleteMany: {},
+              create: variants
+            }
+          }
+        : {}),
+      ...(images.length > 0
+        ? {
+            images: {
+              deleteMany: {},
+              create: images
+            }
+          }
+        : {})
     },
     create: {
       miaoshouProductId: product.id,
@@ -24,21 +54,10 @@ export async function upsertMiaoshouProduct(product: MiaoshouProduct) {
       attributes: product.attributes as Prisma.InputJsonValue,
       description: product.description,
       variants: {
-        create: product.variants.map((variant) => ({
-          sku: variant.sku,
-          name: variant.name,
-          color: variant.color,
-          size: variant.size,
-          imageUrl: variant.imageUrl,
-          rawData: variant.rawData as Prisma.InputJsonValue
-        }))
+        create: variants
       },
       images: {
-        create: product.images.map((image) => ({
-          type: image.type as ProductImageType,
-          originalUrl: image.url,
-          sortOrder: image.sortOrder
-        }))
+        create: images
       }
     },
     include: {
