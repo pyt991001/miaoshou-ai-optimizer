@@ -17,7 +17,7 @@ type ProductRow = {
   targetPlatform: string;
   imageCount: number;
   skuCount: number;
-  skuList: Array<{
+  skuList?: Array<{
     sku: string;
     name: string | null;
     color: string | null;
@@ -248,9 +248,9 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
               <td className="p-3">{product.imageCount}</td>
               <td className="min-w-56 p-3">
                 <div className="mb-2 text-xs font-medium text-slate-700">共 {product.skuCount} 个 SKU</div>
-                {product.skuList.length > 0 ? (
+                {(product.skuList ?? []).length > 0 ? (
                   <div className="flex max-h-36 flex-col gap-1 overflow-auto pr-1">
-                    {product.skuList.map((sku, index) => (
+                    {(product.skuList ?? []).map((sku, index) => (
                       <div key={`${product.id}-${sku.sku}-${index}`} className="rounded-md border border-line bg-white px-2 py-1 text-xs text-slate-600">
                         <div className="font-mono text-[11px] text-slate-800">{sku.sku || `SKU-${index + 1}`}</div>
                         <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
