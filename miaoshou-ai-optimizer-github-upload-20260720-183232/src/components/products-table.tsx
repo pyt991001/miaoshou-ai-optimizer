@@ -246,25 +246,9 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
               <td className="p-3">{product.source}</td>
               <td className="p-3">{product.targetPlatform}</td>
               <td className="p-3">{product.imageCount}</td>
-              <td className="min-w-56 p-3">
-                <div className="mb-2 text-xs font-medium text-slate-700">共 {product.skuCount} 个 SKU</div>
-                {(product.skuList ?? []).length > 0 ? (
-                  <div className="flex max-h-36 flex-col gap-1 overflow-auto pr-1">
-                    {(product.skuList ?? []).map((sku, index) => (
-                      <div key={`${product.id}-${sku.sku}-${index}`} className="rounded-md border border-line bg-white px-2 py-1 text-xs text-slate-600">
-                        <div className="font-mono text-[11px] text-slate-800">{sku.sku || `SKU-${index + 1}`}</div>
-                        <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
-                          {sku.color ? <span>颜色：{sku.color}</span> : null}
-                          {sku.size ? <span>尺码：{sku.size}</span> : null}
-                          {sku.name && sku.name !== sku.sku ? <span>规格：{sku.name}</span> : null}
-                          {sku.imageUrl ? <span className="text-emerald-700">有图</span> : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-xs text-slate-400">暂无 SKU 明细</span>
-                )}
+              <td className="p-3">
+                <div className="whitespace-nowrap text-sm font-semibold text-slate-700">{product.skuCount}</div>
+                {(product.skuList ?? []).some((sku) => sku.imageUrl) ? <div className="mt-1 whitespace-nowrap text-[11px] text-emerald-700">SKU 有图</div> : null}
               </td>
               <td className="p-3">{product.processingStatus}</td>
               <td className="p-3">{product.updatedAt}</td>
