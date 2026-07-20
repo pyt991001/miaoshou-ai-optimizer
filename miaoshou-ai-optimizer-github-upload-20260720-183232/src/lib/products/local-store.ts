@@ -187,23 +187,7 @@ export async function importMiaoshouProductsLocally(products: MiaoshouProduct[])
         imageUrl: variant.imageUrl ?? null,
         rawData: variant.rawData
       })),
-      images: product.images.map((image, index) => {
-        const previousImage = previousImageByOriginalUrl.get(image.url) ?? previous?.images[index];
-        return {
-          id: image.id || `${id}-image-${index}`,
-          productId: id,
-          type: image.type,
-          originalUrl: image.url,
-          localPath: previousImage?.localPath ?? null,
-          sortOrder: image.sortOrder,
-          width: previousImage?.width ?? null,
-          height: previousImage?.height ?? null,
-          format: previousImage?.format ?? null,
-          fileSize: previousImage?.fileSize ?? null,
-          optimizedUrl: previousImage?.optimizedUrl ?? null,
-          createdAt: previousImage?.createdAt ?? now
-        };
-      })
+      images: buildLocalImages(product, previous, id, now, previousImageByOriginalUrl)
     });
   }
 
@@ -211,4 +195,70 @@ export async function importMiaoshouProductsLocally(products: MiaoshouProduct[])
   await fs.mkdir(path.dirname(storageFile), { recursive: true });
   await fs.writeFile(storageFile, JSON.stringify(next, null, 2));
   return next.filter((product) => products.some((item) => item.id === product.miaoshouProductId));
+}
+
+function buildLocalImages(
+  product: MiaoshouProduct,
+  previous: LocalProduct | undefined,
+  productId: string,
+  now: Date,
+  previousImageByOriginalUrl: Map<string, LocalProduct["images"][number]>
+): LocalProduct["images"] {
+  const seen = new Set<string>();
+  const images: LocalProduct["images"] = [];
+
+  const pushImage = (url: string, type: LocalProduct["images"][number]["type"], sortOrder: number, sourceId?: string) => {
+    const normalized = normalizeUrl(url);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    const index = images.length;
+    const previousImage = previousImageByOriginalUrl.get(url) ?? previousImageByOriginalUrl.get(normalized) ?? previous?.images[index];
+    images.push({
+      id: previousImage?.id ?? sourceId ?? `${productId}-image-${index}`,
+      productId,
+      type,
+      originalUrl: url,
+      localPath: previousImage?.localPath ?? null,
+      sortOrder,
+      width: previousImage?.width ?? null,
+      height: previousImage?.height ?? null,
+      format: previousImage?.format ?? null,
+      fileSize: previousImage?.fileSize ?? null,
+      optimizedUrl: previousImage?.optimizedUrl ?? null,
+      createdAt: previousImage?.createdAt ?? now
+    });
+  };
+
+  product.images.forEach((image) => pushImage(image.url, image.type, image.sortOrder, image.id));
+
+  product.variants.forEach((variant) => {
+    uniqueStrings([variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]).forEach((imageUrl) => {
+      pushImage(imageUrl, "SKU_IMAGE", images.length);
+    });
+  });
+
+  return images;
+}
+
+function normalizeUrl(url?: string | null) {
+  return (url ?? "").trim().replace(/^http:\/\//, "https://").replace(/\?.*$/, "");
+}
+
+function imageUrlsFromUnknown(value: unknown, depth = 0): string[] {
+  if (depth > 5 || value == null) return [];
+  if (typeof value === "string") return isImageUrl(value) ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap((item) => imageUrlsFromUnknown(item, depth + 1));
+  if (typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => {
+    if (!/(img|image|pic|picture|thumbnail|photo|detail|sku|spec|url)/i.test(key)) return [];
+    return imageUrlsFromUnknown(child, depth + 1);
+  });
+}
+
+function isImageUrl(value: string) {
+  return /^https?:\/\//i.test(value) || value.startsWith("//");
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
