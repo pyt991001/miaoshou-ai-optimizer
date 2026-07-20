@@ -66,17 +66,22 @@ export async function DELETE() {
   await clearLocalProducts();
   let deletedFromDatabase = 0;
   try {
-    const result = await prisma.product.deleteMany({
-      where: {
-        OR: [
-          { miaoshouProductId: { startsWith: "MS-MOCK-" } },
-          { source: { contains: "Mock", mode: "insensitive" } }
-        ]
-      }
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.processingTask.updateMany({
+        where: { productId: { not: null } },
+        data: { productId: null }
+      });
+      return tx.product.deleteMany();
     });
     deletedFromDatabase = result.count;
-  } catch {
-    deletedFromDatabase = 0;
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message: error instanceof Error ? `清空商品失败：${error.message}` : "清空商品失败"
+      },
+      { status: 500 }
+    );
   }
   return NextResponse.json({ ok: true, deletedFromDatabase });
 }
