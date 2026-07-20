@@ -292,9 +292,15 @@ export class RealMiaoshouClient implements MiaoshouClient {
   }
 
   private mapProduct(item: JsonRecord, raw: JsonRecord = item): MiaoshouProduct {
-    const images = imageUrlsFrom(item);
+    const id = stringValue(item.commonCollectBoxDetailId ?? item.collectBoxDetailId ?? item.detailId ?? item.id) ?? "";
+    const variants = variantsFrom(item.skuMap, item, raw);
+    const variantImageUrls = uniqueStrings(
+      variants.flatMap((variant) => [variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]).filter(isPublicImageUrl)
+    );
+    const variantImageKeys = new Set(variantImageUrls.map(normalizeComparableUrl));
+    const images = uniqueStrings([...imageUrlsFrom(item), ...imageUrlsFrom(raw), ...variantImageUrls]);
     return {
-      id: stringValue(item.commonCollectBoxDetailId ?? item.collectBoxDetailId ?? item.detailId ?? item.id) ?? "",
+      id,
       title: stringValue(item.title ?? item.oriTitle ?? item.itemName) ?? "未命名商品",
       status: mapStatus(stringValue(item.status)),
       source: stringValue(item.source ?? firstSource(item)?.source) ?? "miaoshou",
@@ -303,12 +309,12 @@ export class RealMiaoshouClient implements MiaoshouClient {
       attributes: asRecord(item.sourceAttrs ?? item.productAttributes ?? {}),
       description: stringValue(item.notes ?? item.notesText ?? item.richTextDesc),
       images: images.map((url, index) => ({
-        id: `${stringValue(item.commonCollectBoxDetailId ?? item.collectBoxDetailId ?? item.detailId ?? item.id) ?? "image"}-${index}`,
-        type: index === 0 ? "MAIN_IMAGE" : "GALLERY_IMAGE",
+        id: `${id || "image"}-${index}`,
+        type: index === 0 ? "MAIN_IMAGE" : variantImageKeys.has(normalizeComparableUrl(url)) ? "SKU_IMAGE" : "GALLERY_IMAGE",
         url,
         sortOrder: index
       })),
-      variants: variantsFrom(item.skuMap),
+      variants,
       rawData: raw
     };
   }
@@ -538,7 +544,8 @@ function imageUrlsFrom(item: JsonRecord): string[] {
     stringValue(item.cover),
     stringValue(item.coverUrl),
     stringValue(item.photoUrl),
-    stringValue(item.productImageUrl)
+    stringValue(item.productImageUrl),
+    ...imageUrlsFromUnknown(item)
   ].map(normalizeImageUrl).filter(isPublicImageUrl);
   return uniqueStrings(urls);
 }
@@ -548,11 +555,11 @@ function arrayOfStrings(value: unknown): string[] {
 }
 
 function imageUrlsFromUnknown(value: unknown, parentKey = "", depth = 0): string[] {
-  if (depth > 6 || value == null) return [];
+  if (depth > 8 || value == null) return [];
 
   if (typeof value === "string") {
     const normalized = normalizeImageUrl(value);
-    return looksLikeImageField(parentKey) && isPublicImageUrl(normalized) ? [normalized] : [];
+    return isPublicImageUrl(normalized) && (looksLikeImageField(parentKey) || isLikelyImageUrl(normalized)) ? [normalized] : [];
   }
 
   if (Array.isArray(value)) {
@@ -565,11 +572,9 @@ function imageUrlsFromUnknown(value: unknown, parentKey = "", depth = 0): string
     const nextKey = parentKey ? `${parentKey}.${key}` : key;
     if (typeof child === "string") {
       const normalized = normalizeImageUrl(child);
-      return looksLikeImageField(key) && isPublicImageUrl(normalized) ? [normalized] : [];
+      return isPublicImageUrl(normalized) && (looksLikeImageField(key) || isLikelyImageUrl(normalized)) ? [normalized] : [];
     }
-    return looksLikeImageField(key) || key === "skuMap"
-      ? imageUrlsFromUnknown(child, nextKey, depth + 1)
-      : [];
+    return imageUrlsFromUnknown(child, nextKey, depth + 1);
   });
 }
 
@@ -596,20 +601,147 @@ function isPublicImageUrl(value: unknown): value is string {
   }
 }
 
-function variantsFrom(value: unknown): MiaoshouProduct["variants"] {
+function isLikelyImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return /\.(avif|gif|jpeg|jpg|png|webp)(\?.*)?$/i.test(url.pathname + url.search);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeComparableUrl(url: string): string {
+  return url.trim().replace(/^http:\/\//i, "https://").replace(/\?.*$/, "");
+}
+
+type SkuImageCandidate = {
+  keys: string[];
+  imageUrls: string[];
+};
+
+function variantsFrom(value: unknown, item?: JsonRecord, raw?: JsonRecord): MiaoshouProduct["variants"] {
   const skuMap = asRecord(value);
+  const skuImageCandidates = skuImageCandidatesFromUnknown([item, raw]);
   return Object.entries(skuMap).map(([sku, raw]) => {
     const record = asRecord(raw);
-    const skuImages = imageUrlsFromUnknown(record);
+    const variantSku = stringValue(record.itemNum) ?? sku;
+    const variantKeys = variantMatchKeys(variantSku, sku, record);
+    const matchedCandidates = skuImageCandidates.filter((candidate) => hasCommonVariantKey(variantKeys, candidate.keys));
+    const skuImages = uniqueStrings([
+      ...imageUrlsFromUnknown(record),
+      ...matchedCandidates.flatMap((candidate) => candidate.imageUrls)
+    ]);
     return {
-      sku: stringValue(record.itemNum) ?? sku,
+      sku: variantSku,
       name: sku,
       color: stringValue(record.colorPropName),
       size: stringValue(record.sizePropName),
       imageUrl: skuImages[0] ?? normalizeImageUrl(record.imgUrl),
-      rawData: record
+      rawData: {
+        ...record,
+        ...(skuImages.length > 0 ? { skuImageUrls: skuImages } : {}),
+        ...(matchedCandidates.length > 0
+          ? { skuImageMatchedKeys: uniqueStrings(matchedCandidates.flatMap((candidate) => candidate.keys)) }
+          : {})
+      }
     };
   });
+}
+
+function skuImageCandidatesFromUnknown(value: unknown, parentKeys: string[] = [], depth = 0): SkuImageCandidate[] {
+  if (depth > 8 || value == null) return [];
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => skuImageCandidatesFromUnknown(item, parentKeys, depth + 1));
+  }
+
+  if (typeof value !== "object") return [];
+
+  const record = asRecord(value);
+  const recordKeys = variantKeysFromRecord(record);
+  const keys = uniqueStrings([...parentKeys, ...recordKeys].map(cleanVariantKey).filter(Boolean));
+  const imageUrls = uniqueStrings(imageUrlsFromUnknown(record));
+  const ownCandidate = imageUrls.length > 0 && keys.length > 0 ? [{ keys, imageUrls }] : [];
+
+  const childCandidates = Object.entries(record).flatMap(([key, child]) =>
+    skuImageCandidatesFromUnknown(child, [...parentKeys, key, ...recordKeys], depth + 1)
+  );
+
+  return [...ownCandidate, ...childCandidates];
+}
+
+function variantMatchKeys(sku: string, mapKey: string, record: JsonRecord): string[] {
+  const directKeys = variantKeysFromRecord(record);
+  const comboKeys = [
+    [record.colorPropName, record.sizePropName],
+    [record.color, record.size],
+    [record.colorName, record.sizeName],
+    [record.specName, record.optionName]
+  ]
+    .map((items) => items.map(stringValue).filter(Boolean).join(""))
+    .filter(Boolean);
+
+  return uniqueStrings([sku, mapKey, ...directKeys, ...comboKeys].map(cleanVariantKey).filter(Boolean));
+}
+
+function variantKeysFromRecord(record: JsonRecord): string[] {
+  const fields = [
+    "itemNum",
+    "sku",
+    "skuId",
+    "skuCode",
+    "sellerSku",
+    "sellerSkuId",
+    "sourceSku",
+    "asin",
+    "variantId",
+    "name",
+    "skuName",
+    "specName",
+    "optionName",
+    "propertyName",
+    "propName",
+    "colorPropName",
+    "sizePropName",
+    "colorName",
+    "sizeName",
+    "color",
+    "size",
+    "value",
+    "valueName",
+    "attrName",
+    "attributeName"
+  ];
+
+  return uniqueStrings(fields.flatMap((field) => collectStringValues(record[field])));
+}
+
+function collectStringValues(value: unknown): string[] {
+  const direct = stringValue(value);
+  if (direct) return [direct];
+  if (Array.isArray(value)) return value.flatMap(collectStringValues);
+  if (value && typeof value === "object") return Object.values(value as JsonRecord).flatMap(collectStringValues);
+  return [];
+}
+
+function cleanVariantKey(value?: string): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "");
+}
+
+function hasCommonVariantKey(leftKeys: string[], rightKeys: string[]): boolean {
+  const left = uniqueStrings(leftKeys.map(cleanVariantKey).filter((key) => key.length >= 2));
+  const right = uniqueStrings(rightKeys.map(cleanVariantKey).filter((key) => key.length >= 2));
+
+  return left.some((leftKey) =>
+    right.some((rightKey) => {
+      if (leftKey === rightKey && leftKey.length >= 2) return true;
+      if (leftKey.length < 4 || rightKey.length < 4) return false;
+      return leftKey.includes(rightKey) || rightKey.includes(leftKey);
+    })
+  );
 }
 
 function firstSource(item: JsonRecord): JsonRecord | undefined {
