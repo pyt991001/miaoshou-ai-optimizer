@@ -22,14 +22,30 @@ export async function saveProductToMiaoshou(productId: string, saveMode: SaveMod
   const product = await prisma.product
     .findUnique({
       where: { id: productId },
-      include: { images: { include: { optimizations: true } }, titleOptimizations: true }
+      include: {
+        images: {
+          orderBy: { sortOrder: "asc" },
+          include: { optimizations: { orderBy: { createdAt: "desc" } } }
+        },
+        titleOptimizations: true
+      }
     })
     .catch(() => null);
   if (!product) throw new Error("Product not found");
   const client = createMiaoshouClient();
   const acceptedTitle = product.titleOptimizations.find((item) => item.decision === "ACCEPTED")?.optimizedTitle ?? product.optimizedTitle ?? product.originalTitle;
-  const acceptedImages = product.images.flatMap((image) => image.optimizations.filter((item) => item.decision === "ACCEPTED" || item.userConfirmed).map((item) => item.optimizedUrl).filter(Boolean) as string[]);
-  if (acceptedImages.length > 0) assertPublicImageUrls(acceptedImages);
+  // 洗图操作本身已经由用户选择了具体图片。保存时使用每张图最新的
+  // 成功结果，不能只读取审核状态，否则新生成的 PENDING 记录会被漏掉。
+  const latestOptimizedUrls = product.images
+    .map((image) => image.optimizations.find((item) => Boolean(item.optimizedUrl))?.optimizedUrl)
+    .filter((url): url is string => Boolean(url));
+  if (latestOptimizedUrls.length === 0) {
+    throw new Error("没有找到可保存的洗图结果。请先勾选图片并完成洗图，再保存到妙手公共采集箱。");
+  }
+  assertPublicImageUrls(latestOptimizedUrls);
+  const imageUrls = uniqueUrls(
+    product.images.map((image) => image.optimizations.find((item) => Boolean(item.optimizedUrl))?.optimizedUrl ?? image.originalUrl)
+  );
   const boxResult =
     saveMode === SaveMode.PLATFORM_COLLECTION_BOX
       ? await client.saveToPlatformCollectionBox(product.miaoshouProductId, process.env.MIAOSHOU_TARGET_BOX ?? process.env.MIAOSHOU_TARGET_PLATFORM ?? "shein", crypto.randomUUID())
@@ -38,7 +54,7 @@ export async function saveProductToMiaoshou(productId: string, saveMode: SaveMod
         : await client.updateProduct({
             productId: product.miaoshouProductId,
             title: acceptedTitle,
-            imageUrls: acceptedImages,
+            imageUrls,
             idempotencyKey: crypto.randomUUID()
           });
   return prisma.miaoshouSyncRecord.create({
@@ -47,7 +63,7 @@ export async function saveProductToMiaoshou(productId: string, saveMode: SaveMod
       saveMode,
       miaoshouProductId: boxResult.productId,
       miaoshouTaskId: boxResult.taskId,
-      requestPayload: { title: acceptedTitle, imageUrls: acceptedImages } as Prisma.InputJsonValue,
+      requestPayload: { title: acceptedTitle, imageUrls, optimizedImageCount: latestOptimizedUrls.length } as Prisma.InputJsonValue,
       rawResponse: boxResult.rawResponse as Prisma.InputJsonValue,
       status: boxResult.status
     }
@@ -59,9 +75,11 @@ export async function saveLocalProductToMiaoshou(productId: string, saveMode: Sa
   if (!product) throw new Error("Product not found");
   const client = createMiaoshouClient();
   const optimizedUrls = product.images.map((image) => image.optimizedUrl).filter((url): url is string => Boolean(url));
-  const originalUrls = product.images.map((image) => image.originalUrl).filter(Boolean);
-  const imageUrls = uniqueUrls([...optimizedUrls, ...originalUrls]);
-  if (product.images.some((image) => image.optimizedUrl)) assertPublicImageUrls(imageUrls);
+  if (optimizedUrls.length === 0) {
+    throw new Error("没有找到可保存的洗图结果。请先勾选图片并完成洗图，再保存到妙手公共采集箱。");
+  }
+  assertPublicImageUrls(optimizedUrls);
+  const imageUrls = uniqueUrls(product.images.map((image) => image.optimizedUrl ?? image.originalUrl));
   const boxResult =
     saveMode === SaveMode.PLATFORM_COLLECTION_BOX
       ? await client.saveToPlatformCollectionBox(product.miaoshouProductId, process.env.MIAOSHOU_TARGET_BOX ?? process.env.MIAOSHOU_TARGET_PLATFORM ?? "shein", crypto.randomUUID())
