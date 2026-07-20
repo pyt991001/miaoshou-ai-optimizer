@@ -35,13 +35,33 @@ export default async function ReviewPage({ params }: { params: Promise<{ product
         </div>
         <ReviewActions productId={product.id} titleOptimizationId={latestTitle?.id} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="space-y-4">
         <section className="panel p-5">
           <h2 className="font-semibold">原始数据</h2>
           <div className="mt-4 text-sm text-slate-500">原标题</div>
           <p className="mt-1">{product.originalTitle}</p>
           <div className="mt-4">
-            <ReviewImageSelector productId={product.id} images={product.images.map((image) => ({ id: image.id, originalUrl: image.originalUrl, type: image.type }))} />
+            <ReviewImageSelector
+              productId={product.id}
+              images={product.images.map((image) => ({
+                id: image.id,
+                originalUrl: image.originalUrl,
+                type: image.type,
+                width: image.width,
+                height: image.height,
+                sortOrder: image.sortOrder,
+                optimizedUrl: image.optimizations?.[0]?.optimizedUrl ?? null
+              }))}
+              variants={product.variants.map((variant) => ({
+                id: variant.id,
+                sku: variant.sku,
+                name: variant.name,
+                color: variant.color,
+                size: variant.size,
+                imageUrl: variant.imageUrl,
+                imageUrls: uniqueStrings([variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)])
+              }))}
+            />
           </div>
           <pre className="mt-4 overflow-auto rounded bg-cloud p-3 text-xs">{JSON.stringify(product.attributes, null, 2)}</pre>
         </section>
@@ -105,4 +125,23 @@ function toReviewProduct(product: LocalProduct) {
         : []
     }))
   };
+}
+
+function imageUrlsFromUnknown(value: unknown, depth = 0): string[] {
+  if (depth > 5 || value == null) return [];
+  if (typeof value === "string") return isImageUrl(value) ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap((item) => imageUrlsFromUnknown(item, depth + 1));
+  if (typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => {
+    if (!/(img|image|pic|picture|thumbnail|photo|detail|sku|spec|url)/i.test(key)) return [];
+    return imageUrlsFromUnknown(child, depth + 1);
+  });
+}
+
+function isImageUrl(value: string) {
+  return /^https?:\/\//i.test(value) || value.startsWith("//");
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
