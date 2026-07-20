@@ -1,12 +1,47 @@
 import { ImportProductsButton } from "@/components/import-products-button";
 import { ProductsTable } from "@/components/products-table";
+import { prisma } from "@/lib/db/prisma";
+import { safeQuery } from "@/lib/db/safe-query";
 import { readLocalProducts } from "@/lib/products/local-store";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
-  const products = await readLocalProducts();
-  const rows = products.map((product) => ({
+  const dbProducts = await safeQuery(
+    () =>
+      prisma.product.findMany({
+        include: {
+          variants: true,
+          images: {
+            include: { optimizations: { orderBy: { createdAt: "desc" }, take: 1 } },
+            orderBy: { sortOrder: "asc" }
+          }
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 500
+      }),
+    [],
+    "products-page-list"
+  );
+  const localProducts = dbProducts.length === 0 ? await readLocalProducts() : [];
+  const rows =
+    dbProducts.length > 0
+      ? dbProducts.map((product) => ({
+          id: product.id,
+          miaoshouProductId: product.miaoshouProductId,
+          mainImageUrl: product.images[0]?.originalUrl ?? null,
+          optimizedMainImageUrl: getOptimizedImageUrl(product.images[0]),
+          originalTitle: product.originalTitle,
+          optimizedTitle: product.optimizedTitle ?? null,
+          status: product.status,
+          source: product.source,
+          targetPlatform: product.targetPlatform,
+          imageCount: product.images.length,
+          skuCount: product.variants.length,
+          processingStatus: product.processingStatus,
+          updatedAt: product.updatedAt.toLocaleString()
+        }))
+      : localProducts.map((product) => ({
     id: product.id,
     miaoshouProductId: product.miaoshouProductId,
     mainImageUrl: product.images[0]?.originalUrl ?? null,
@@ -32,7 +67,7 @@ export default async function ProductsPage() {
         <ImportProductsButton />
       </div>
       <div className="panel overflow-hidden">
-        {products.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="border-b border-line bg-amber-50 p-4 text-sm text-amber-800">
             还没有商品数据。点击右上角“导入妙手公共采集箱商品”；如果导入失败，请检查妙手 AppKey/AppSecret 或 Docker 数据库是否已启动。
           </div>
