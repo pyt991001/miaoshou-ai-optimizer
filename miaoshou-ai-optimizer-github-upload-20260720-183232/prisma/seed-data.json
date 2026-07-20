@@ -1,0 +1,48 @@
+{
+  "products": [
+    {
+      "miaoshouProductId": "MS-MOCK-1001",
+      "originalTitle": "Women Summer Floral Print Midi Dress Casual Beach Dress Shop Promo",
+      "status": "ACTIVE",
+      "source": "Mock Miaoshou",
+      "targetPlatform": "Shopee",
+      "category": "Women's Dresses",
+      "attributes": {
+        "material": "polyester",
+        "color": "blue floral",
+        "season": "summer",
+        "gender": "women"
+      },
+      "description": "Lightweight floral midi dress for casual daily wear.",
+      "variants": [
+        { "sku": "MS1001-BLUE-S", "name": "Blue / S", "color": "blue floral", "size": "S" },
+        { "sku": "MS1001-BLUE-M", "name": "Blue / M", "color": "blue floral", "size": "M" }
+      ],
+      "images": [
+        { "type": "MAIN_IMAGE", "originalUrl": "/mock-images/dress-main.svg" },
+        { "type": "GALLERY_IMAGE", "originalUrl": "/mock-images/dress-gallery.svg" }
+      ]
+    },
+    {
+      "miaoshouProductId": "MS-MOCK-1002",
+      "originalTitle": "Portable Stainless Steel Thermos Cup Outdoor Water Bottle 500ml",
+      "status": "ACTIVE",
+      "source": "Mock Miaoshou",
+      "targetPlatform": "Lazada",
+      "category": "Drinkware",
+      "attributes": {
+        "material": "stainless steel",
+        "capacity": "500ml",
+        "color": "white"
+      },
+      "description": "Reusable insulated bottle for travel and office use.",
+      "variants": [
+        { "sku": "MS1002-WHITE-500", "name": "White 500ml", "color": "white", "size": "500ml" }
+      ],
+      "images": [
+        { "type": "MAIN_IMAGE", "originalUrl": "/mock-images/bottle-main.svg" },
+        { "type": "SKU_IMAGE", "originalUrl": "/mock-images/bottle-sku.svg" }
+      ]
+    }
+  ]
+}

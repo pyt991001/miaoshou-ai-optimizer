@@ -1,0 +1,276 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+  UNKNOWN
+}
+
+enum ProcessingStatus {
+  PENDING
+  FETCHING
+  DOWNLOADING
+  OPTIMIZING_TITLE
+  PROCESSING_IMAGES
+  VALIDATING
+  WAITING_REVIEW
+  SAVING_TO_MIAOSHOU
+  COMPLETED
+  PARTIALLY_COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ProductImageType {
+  MAIN_IMAGE
+  GALLERY_IMAGE
+  SKU_IMAGE
+  DETAIL_IMAGE
+}
+
+enum ReviewDecision {
+  PENDING
+  ACCEPTED
+  REJECTED
+  NEEDS_REVIEW
+}
+
+enum TaskType {
+  FETCH_PRODUCT
+  OPTIMIZE_TITLE
+  OPTIMIZE_IMAGE
+  VALIDATE_IMAGE
+  SAVE_TO_MIAOSHOU
+  PUBLISH_PRODUCT
+}
+
+enum SaveMode {
+  LOCAL_ONLY
+  PUBLIC_COLLECTION_BOX
+  PLATFORM_COLLECTION_BOX
+}
+
+enum ApiProvider {
+  OPENAI
+  MIAOSHOU
+  STORAGE
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  valueJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ApiCredential {
+  id               String      @id @default(cuid())
+  provider         ApiProvider
+  name             String
+  encryptedPayload String
+  last4            String?
+  active           Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  @@index([provider, active])
+}
+
+model Product {
+  id               String              @id @default(cuid())
+  miaoshouProductId String             @unique
+  originalTitle    String
+  optimizedTitle   String?
+  status           ProductStatus       @default(UNKNOWN)
+  source           String
+  targetPlatform   String
+  category         String?
+  attributes       Json
+  description      String?
+  processingStatus ProcessingStatus    @default(PENDING)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  variants         ProductVariant[]
+  images           ProductImage[]
+  titleOptimizations TitleOptimization[]
+  syncRecords      MiaoshouSyncRecord[]
+  tasks            ProcessingTask[]
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  sku       String
+  name      String?
+  color     String?
+  size      String?
+  imageUrl  String?
+  rawData   Json
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([productId])
+}
+
+model ProductImage {
+  id               String             @id @default(cuid())
+  productId        String
+  type             ProductImageType
+  originalUrl      String
+  localPath        String?
+  sortOrder        Int                @default(0)
+  width            Int?
+  height           Int?
+  format           String?
+  fileSize         Int?
+  createdAt        DateTime           @default(now())
+  product          Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  optimizations    ImageOptimization[]
+  @@index([productId, type])
+}
+
+model ProcessingJob {
+  id              String           @id @default(cuid())
+  name            String
+  status          ProcessingStatus @default(PENDING)
+  saveMode        SaveMode         @default(LOCAL_ONLY)
+  totalProducts   Int              @default(0)
+  completedCount  Int              @default(0)
+  failedCount     Int              @default(0)
+  settings        Json
+  pauseReason     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  tasks           ProcessingTask[]
+}
+
+model ProcessingTask {
+  id             String           @id @default(cuid())
+  jobId          String
+  productId      String?
+  type           TaskType
+  status         ProcessingStatus @default(PENDING)
+  attempts       Int              @default(0)
+  maxAttempts    Int              @default(3)
+  idempotencyKey String           @unique
+  payload        Json
+  errorMessage   String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  job            ProcessingJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  product        Product?         @relation(fields: [productId], references: [id])
+  @@index([jobId, status])
+}
+
+model TitleOptimization {
+  id              String         @id @default(cuid())
+  productId       String
+  originalTitle   String
+  optimizedTitle  String
+  language        String
+  characterCount  Int
+  keywords        String[]
+  removedTerms    String[]
+  warnings        String[]
+  confidence      Float
+  prompt          String
+  model           String
+  openaiRequestId String?
+  inputTokens     Int            @default(0)
+  outputTokens    Int            @default(0)
+  costUsd         Decimal        @default(0)
+  decision        ReviewDecision @default(PENDING)
+  failureReason   String?
+  createdAt       DateTime       @default(now())
+  product         Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ImageOptimization {
+  id                 String             @id @default(cuid())
+  productImageId     String
+  originalUrl        String
+  optimizedUrl       String?
+  optimizedLocalPath String?
+  openaiRequestId    String?
+  model              String
+  prompt             String
+  imageType          ProductImageType
+  processingMs       Int?
+  apiCostUsd         Decimal           @default(0)
+  consistencyScore   Int?
+  validationReport   Json?
+  failureReason      String?
+  userConfirmed      Boolean           @default(false)
+  decision           ReviewDecision    @default(PENDING)
+  createdAt          DateTime          @default(now())
+  image              ProductImage      @relation(fields: [productImageId], references: [id], onDelete: Cascade)
+}
+
+model MiaoshouSyncRecord {
+  id                 String   @id @default(cuid())
+  productId          String
+  saveMode           SaveMode
+  miaoshouProductId  String?
+  miaoshouTaskId     String?
+  requestPayload     Json
+  rawResponse        Json
+  status             String
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ApiUsageRecord {
+  id           String      @id @default(cuid())
+  provider     ApiProvider
+  operation    String
+  productId    String?
+  jobId        String?
+  inputTokens  Int         @default(0)
+  outputTokens Int         @default(0)
+  imageCount   Int         @default(0)
+  costUsd      Decimal     @default(0)
+  requestId    String?
+  createdAt    DateTime    @default(now())
+  @@index([provider, createdAt])
+}
+
+model ErrorLog {
+  id           String   @id @default(cuid())
+  scope        String
+  code         String?
+  message      String
+  retryable    Boolean  @default(false)
+  context      Json?
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
