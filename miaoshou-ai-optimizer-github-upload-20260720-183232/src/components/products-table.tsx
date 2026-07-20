@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -213,12 +212,12 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                 <div className="flex min-w-36 items-center gap-2">
                   <div>
                     <div className="mb-1 text-center text-[10px] text-slate-500">原图</div>
-                    {product.mainImageUrl ? <Image src={product.mainImageUrl} alt="" width={54} height={54} className="rounded border border-line object-cover" /> : <div className="grid size-[54px] place-items-center rounded border border-line bg-cloud text-[10px] text-slate-400">无图</div>}
+                    {product.mainImageUrl ? <img src={product.mainImageUrl} alt="" referrerPolicy="no-referrer" className="size-[54px] rounded border border-line object-cover" /> : <div className="grid size-[54px] place-items-center rounded border border-line bg-cloud text-[10px] text-slate-400">无图</div>}
                   </div>
                   <div className="pt-5 text-xs text-slate-400">→</div>
                   <div>
                     <div className="mb-1 text-center text-[10px] text-slate-500">优化图</div>
-                    {product.optimizedMainImageUrl ? <Image src={product.optimizedMainImageUrl} alt="" width={54} height={54} className="rounded border border-emerald-200 object-cover" /> : <div className="grid size-[54px] place-items-center rounded border border-dashed border-line bg-cloud text-[10px] text-slate-400">未生成</div>}
+                    {product.optimizedMainImageUrl ? <img src={product.optimizedMainImageUrl} alt="" referrerPolicy="no-referrer" className="size-[54px] rounded border border-emerald-200 object-cover" /> : <div className="grid size-[54px] place-items-center rounded border border-dashed border-line bg-cloud text-[10px] text-slate-400">未生成</div>}
                   </div>
                 </div>
               </td>
