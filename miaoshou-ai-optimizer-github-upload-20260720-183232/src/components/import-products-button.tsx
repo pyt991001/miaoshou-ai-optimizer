@@ -13,11 +13,11 @@ export function ImportProductsButton() {
     setMessage(null);
     try {
       const response = await fetch("/api/miaoshou/products", { method: "DELETE" });
-      const data = (await response.json().catch(() => ({}))) as { deletedFromDatabase?: number; message?: string; error?: string };
+      const data = (await response.json().catch(() => ({}))) as { deletedFromDatabase?: number; message?: string; error?: string; warning?: string };
       if (!response.ok) {
         throw new Error(data.message ?? data.error ?? "清空商品失败");
       }
-      setMessage(`已清空商品：${data.deletedFromDatabase ?? 0} 个`);
+      setMessage(data.warning ?? `已清空商品：${data.deletedFromDatabase ?? 0} 个`);
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "清空商品失败");
@@ -43,11 +43,11 @@ export function ImportProductsButton() {
             setMessage(null);
             try {
               const response = await fetch("/api/miaoshou/products", { method: "POST" });
-              const data = (await response.json().catch(() => ({}))) as { imported?: number; message?: string; error?: string; storage?: string };
+              const data = (await response.json().catch(() => ({}))) as { imported?: number; message?: string; error?: string; warning?: string; storage?: string };
               if (!response.ok) {
                 throw new Error(data.message ?? data.error ?? "导入失败，请确认数据库已启动");
               }
-              setMessage(`已导入 ${data.imported ?? 0} 个商品${data.storage === "local-file" ? "（本地临时保存）" : ""}`);
+              setMessage(data.warning ?? `已导入 ${data.imported ?? 0} 个商品${data.storage === "local-file" ? "（本地临时保存）" : ""}`);
               router.refresh();
             } catch (error) {
               setMessage(error instanceof Error ? error.message : "导入失败，请检查妙手配置或数据库");
