@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import type { StoredImageRuleConfig } from "@/lib/openai/image-rule-config";
 
@@ -92,7 +91,7 @@ export function ReviewImageSelector({ productId, images }: { productId: string; 
                   洗这张
                 </span>
               </div>
-              <Image src={image.originalUrl} alt="" width={260} height={260} className="aspect-square w-full rounded object-cover" />
+              <img src={image.originalUrl} alt="" referrerPolicy="no-referrer" className="aspect-square w-full rounded object-cover" />
               <div className="mt-2 text-xs text-slate-500">{image.type}</div>
             </label>
           );
