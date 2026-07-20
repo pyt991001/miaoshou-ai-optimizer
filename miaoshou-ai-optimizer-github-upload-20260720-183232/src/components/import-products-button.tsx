@@ -15,12 +15,12 @@ export function ImportProductsButton() {
       const response = await fetch("/api/miaoshou/products", { method: "DELETE" });
       const data = (await response.json().catch(() => ({}))) as { deletedFromDatabase?: number; message?: string; error?: string };
       if (!response.ok) {
-        throw new Error(data.message ?? data.error ?? "清空演示商品失败");
+        throw new Error(data.message ?? data.error ?? "清空商品失败");
       }
-      setMessage(`已清空演示商品${data.deletedFromDatabase ? `：${data.deletedFromDatabase} 个` : ""}`);
+      setMessage(`已清空商品：${data.deletedFromDatabase ?? 0} 个`);
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "清空演示商品失败");
+      setMessage(error instanceof Error ? error.message : "清空商品失败");
     } finally {
       setClearing(false);
     }
@@ -33,7 +33,7 @@ export function ImportProductsButton() {
           disabled={clearing || loading}
           onClick={clearDemoProducts}
         >
-          {clearing ? "清空中" : "清空演示商品"}
+          {clearing ? "清空中" : "清空全部商品"}
         </button>
         <button
           className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
