@@ -79,14 +79,22 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
   };
 
   const selectFirst = () => setSelected(new Set(defaultSelected));
+  const selectFirstPerSku = () => {
+    const skuRows = rows.filter((row) => row.id !== "product-common-images");
+    const sourceRows = skuRows.length > 0 ? skuRows : rows;
+    const firstImageIds = sourceRows
+      .map((row) => row.images[0]?.id)
+      .filter((id): id is string => Boolean(id));
+    setSelected(new Set(firstImageIds.length > 0 ? firstImageIds : defaultSelected));
+  };
   const selectAll = () => setSelected(new Set(images.map((image) => image.id)));
 
   return (
     <div className="rounded-lg border border-line bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5">
         <div>
           <div className="text-lg font-semibold">SKU 图片</div>
-          <div className="mt-1 text-xs text-slate-500">已选 {selected.size || 0} 张；每个 SKU 的图片都可以单独勾选洗图。</div>
+          <div className="mt-1 text-xs text-slate-500">已选 {selected.size || 0} 张；鼠标放到已洗图片上可直接看洗图结果。</div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
         {ruleConfig ? (
@@ -101,23 +109,26 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
         <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" type="button" onClick={selectFirst}>
           只选第一张
         </button>
+        <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" type="button" onClick={selectFirstPerSku}>
+          每个 SKU 第一张
+        </button>
         <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" type="button" onClick={selectAll}>
           全选图片
         </button>
         </div>
       </div>
-      <div className="grid grid-cols-[180px_1fr] bg-slate-50 text-sm font-semibold text-slate-500">
-        <div className="px-4 py-3">SKU选项</div>
-        <div className="px-4 py-3">图片</div>
+      <div className="grid grid-cols-[145px_1fr] bg-slate-50 text-sm font-semibold text-slate-500">
+        <div className="px-3 py-2">SKU选项</div>
+        <div className="px-3 py-2">图片</div>
       </div>
-      <div className="divide-y divide-line">
+      <div className="max-h-[560px] divide-y divide-line overflow-y-auto">
         {rows.map((row) => (
-          <div key={row.id} className="grid grid-cols-[180px_1fr] bg-white">
-            <div className="px-4 py-5">
-              <div className="font-medium text-slate-700">{row.label}</div>
-              <div className="mt-1 text-xs text-slate-500">{row.subLabel}</div>
+          <div key={row.id} className="grid grid-cols-[145px_1fr] bg-white">
+            <div className="px-3 py-3">
+              <div className="break-all font-medium text-slate-700">{row.label}</div>
+              <div className="mt-1 max-h-8 overflow-hidden text-xs text-slate-500" title={row.subLabel}>{row.subLabel}</div>
               <button
-                className="mt-4 text-sm text-accent"
+                className="mt-2 text-sm text-accent"
                 type="button"
                 onClick={() => {
                   const ids = row.images.map((image) => image.id);
@@ -135,15 +146,15 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
                 {row.images.length > 0 && row.images.every((image) => selected.has(image.id)) ? "取消本组" : "全选本组"}
               </button>
             </div>
-            <div className="flex flex-wrap gap-3 px-4 py-4">
+            <div className="flex flex-wrap gap-2.5 px-3 py-3">
               {row.images.length > 0 ? (
                 row.images.map((image) => (
                   <ImageCard key={image.id} image={image} checked={selected.has(image.id)} onToggle={() => toggleOne(image.id)} />
                 ))
               ) : (
-                <div className="grid h-[190px] w-[190px] place-items-center rounded-md border border-dashed border-line bg-cloud text-sm text-slate-400">这个 SKU 暂无图片</div>
+                <div className="grid h-[150px] w-[150px] place-items-center rounded-md border border-dashed border-line bg-cloud text-sm text-slate-400">这个 SKU 暂无图片</div>
               )}
-              <div className="grid h-[190px] w-[190px] place-items-center rounded-md border border-line bg-slate-50 text-4xl text-slate-300">+</div>
+              <div className="grid h-[150px] w-[150px] place-items-center rounded-md border border-line bg-slate-50 text-4xl text-slate-300">+</div>
             </div>
           </div>
         ))}
@@ -155,9 +166,17 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
 function ImageCard({ image, checked, onToggle }: { image: ReviewImage; checked: boolean; onToggle: () => void }) {
   const sizeLabel = image.width && image.height ? `${image.width} × ${image.height}` : "尺寸未知";
   return (
-    <label className={`relative h-[190px] w-[190px] cursor-pointer rounded-md border bg-white ${checked ? "border-accent ring-2 ring-accent/20" : "border-line"}`}>
+    <label className={`group relative h-[150px] w-[150px] cursor-pointer rounded-md border bg-white ${checked ? "border-accent ring-2 ring-accent/20" : "border-line"}`}>
       <div className="absolute left-0 top-0 z-10 h-0 w-0 border-l-[22px] border-t-[22px] border-l-accent border-t-accent" />
-      <img src={image.originalUrl} alt="" referrerPolicy="no-referrer" className="h-[135px] w-full rounded-t-md object-cover" />
+      <div className="relative h-[100px] overflow-hidden rounded-t-md bg-slate-50">
+        <img src={image.originalUrl} alt="" referrerPolicy="no-referrer" className={`h-full w-full object-cover transition-opacity ${image.optimizedUrl ? "group-hover:opacity-0" : ""}`} />
+        {image.optimizedUrl ? (
+          <>
+            <img src={image.optimizedUrl} alt="" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity group-hover:opacity-100" />
+            <div className="absolute left-1.5 top-1.5 rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] text-white opacity-0 shadow group-hover:opacity-100">洗图后</div>
+          </>
+        ) : null}
+      </div>
       <div className="flex items-center justify-between border-t border-line px-2 py-1 text-xs text-slate-600">
         <span>{sizeLabel}</span>
         <span className="inline-flex items-center gap-1">
@@ -165,8 +184,8 @@ function ImageCard({ image, checked, onToggle }: { image: ReviewImage; checked: 
           洗
         </span>
       </div>
-      <div className="flex items-center justify-between px-2 py-1 text-[11px] text-slate-500">
-        <span>{image.type}</span>
+      <div className="flex items-center justify-between px-2 py-0.5 text-[11px] text-slate-500">
+        <span className="truncate">{image.type}</span>
         {image.optimizedUrl ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">已洗</span> : <span />}
       </div>
     </label>
