@@ -499,7 +499,7 @@ function asRecord(value: unknown): JsonRecord {
 }
 
 function stringValue(value: unknown): string | undefined {
-  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "string" && value.trim().length > 0) return value.trim();
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return undefined;
 }
@@ -529,9 +529,17 @@ function imageUrlsFrom(item: JsonRecord): string[] {
     stringValue(item.listThumbnail),
     stringValue(item.imgUrl),
     stringValue(item.imageUrl),
+    stringValue(item.picUrl),
+    stringValue(item.pictureUrl),
     stringValue(item.mainImgUrl),
-    stringValue(item.mainImageUrl)
-  ].filter(isPublicImageUrl);
+    stringValue(item.mainImageUrl),
+    stringValue(item.mainPicUrl),
+    stringValue(item.mainPictureUrl),
+    stringValue(item.cover),
+    stringValue(item.coverUrl),
+    stringValue(item.photoUrl),
+    stringValue(item.productImageUrl)
+  ].map(normalizeImageUrl).filter(isPublicImageUrl);
   return uniqueStrings(urls);
 }
 
@@ -543,7 +551,8 @@ function imageUrlsFromUnknown(value: unknown, parentKey = "", depth = 0): string
   if (depth > 6 || value == null) return [];
 
   if (typeof value === "string") {
-    return looksLikeImageField(parentKey) && isPublicImageUrl(value) ? [value] : [];
+    const normalized = normalizeImageUrl(value);
+    return looksLikeImageField(parentKey) && isPublicImageUrl(normalized) ? [normalized] : [];
   }
 
   if (Array.isArray(value)) {
@@ -555,7 +564,8 @@ function imageUrlsFromUnknown(value: unknown, parentKey = "", depth = 0): string
   return Object.entries(value as JsonRecord).flatMap(([key, child]) => {
     const nextKey = parentKey ? `${parentKey}.${key}` : key;
     if (typeof child === "string") {
-      return looksLikeImageField(key) && isPublicImageUrl(child) ? [child] : [];
+      const normalized = normalizeImageUrl(child);
+      return looksLikeImageField(key) && isPublicImageUrl(normalized) ? [normalized] : [];
     }
     return looksLikeImageField(key) || key === "skuMap"
       ? imageUrlsFromUnknown(child, nextKey, depth + 1)
@@ -565,6 +575,14 @@ function imageUrlsFromUnknown(value: unknown, parentKey = "", depth = 0): string
 
 function looksLikeImageField(key: string): boolean {
   return /(img|image|pic|picture|thumbnail|photo|detail|sku|spec)/i.test(key);
+}
+
+function normalizeImageUrl(value: unknown): string | undefined {
+  const raw = stringValue(value);
+  if (!raw) return undefined;
+  if (raw.startsWith("//")) return `https:${raw}`;
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  return raw;
 }
 
 function isPublicImageUrl(value: unknown): value is string {
@@ -588,7 +606,7 @@ function variantsFrom(value: unknown): MiaoshouProduct["variants"] {
       name: sku,
       color: stringValue(record.colorPropName),
       size: stringValue(record.sizePropName),
-      imageUrl: skuImages[0] ?? stringValue(record.imgUrl),
+      imageUrl: skuImages[0] ?? normalizeImageUrl(record.imgUrl),
       rawData: record
     };
   });
