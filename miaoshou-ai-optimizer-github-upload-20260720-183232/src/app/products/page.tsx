@@ -38,6 +38,13 @@ export default async function ProductsPage() {
           targetPlatform: product.targetPlatform,
           imageCount: product.images.length,
           skuCount: product.variants.length,
+          skuList: product.variants.map((variant) => ({
+            sku: variant.sku,
+            name: variant.name,
+            color: variant.color,
+            size: variant.size,
+            imageUrl: variant.imageUrl
+          })),
           processingStatus: product.processingStatus,
           updatedAt: product.updatedAt.toLocaleString()
         }))
@@ -53,6 +60,13 @@ export default async function ProductsPage() {
     targetPlatform: product.targetPlatform,
     imageCount: product.images.length,
     skuCount: product.variants.length,
+    skuList: product.variants.map((variant) => ({
+      sku: variant.sku,
+      name: variant.name,
+      color: variant.color,
+      size: variant.size,
+      imageUrl: variant.imageUrl
+    })),
     processingStatus: product.processingStatus,
     updatedAt: product.updatedAt.toLocaleString()
   }));
