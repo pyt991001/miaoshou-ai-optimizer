@@ -1,4 +1,3 @@
-import Image from "next/image";
 import { ReviewActions } from "@/components/review-actions";
 import { ReviewImageSelector } from "@/components/review-image-selector";
 import { prisma } from "@/lib/db/prisma";
@@ -59,7 +58,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ product
               return (
                 <div key={image.id} className="rounded-md border border-line p-2">
                   <div className="mb-2 text-xs font-medium text-emerald-700">优化图</div>
-                  {optimization?.optimizedUrl ? <Image src={optimization.optimizedUrl} alt="" width={260} height={260} className="aspect-square w-full rounded object-cover" /> : <div className="grid aspect-square place-items-center rounded bg-cloud text-sm text-slate-500">待生成</div>}
+                  {optimization?.optimizedUrl ? <img src={optimization.optimizedUrl} alt="" referrerPolicy="no-referrer" className="aspect-square w-full rounded object-cover" /> : <div className="grid aspect-square place-items-center rounded bg-cloud text-sm text-slate-500">待生成</div>}
                   <div className="mt-2 text-xs text-slate-500">一致性分数 {optimization?.consistencyScore ?? "-"}</div>
                 </div>
               );
