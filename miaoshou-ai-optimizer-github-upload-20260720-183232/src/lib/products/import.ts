@@ -3,15 +3,35 @@ import { prisma } from "@/lib/db/prisma";
 import type { MiaoshouProduct } from "@/lib/miaoshou/types";
 
 export async function upsertMiaoshouProduct(product: MiaoshouProduct, userId: string) {
-  const variants = product.variants.map((variant) => ({
+  const existing = await prisma.product.findUnique({
+    where: { userId_miaoshouProductId: { userId, miaoshouProductId: product.id } },
+    select: { variants: { select: { sku: true, imageUrl: true, rawData: true } } }
+  });
+  const existingVariants = new Map(existing?.variants.map((variant) => [variant.sku, variant]) ?? []);
+  const incomingHasSkuImages = product.variants.some(
+    (variant) => Boolean(variant.imageUrl) || imageUrlsFromUnknown(variant.rawData).length > 0
+  );
+  const variants = product.variants.map((variant) => {
+    const previous = existingVariants.get(variant.sku);
+    const imageUrl = variant.imageUrl ?? previous?.imageUrl ?? undefined;
+    const rawData = {
+      ...(previous?.rawData && typeof previous.rawData === "object" && !Array.isArray(previous.rawData) ? previous.rawData : {}),
+      ...(variant.rawData as Record<string, unknown>)
+    };
+    return {
     sku: variant.sku,
     name: variant.name,
     color: variant.color,
     size: variant.size,
-    imageUrl: variant.imageUrl,
-    rawData: variant.rawData as Prisma.InputJsonValue
-  }));
-  const images = buildImages(product);
+      imageUrl,
+      rawData: rawData as Prisma.InputJsonValue
+    };
+  });
+  const images = buildImages({ ...product, variants: product.variants.map((variant, index) => ({
+    ...variant,
+    imageUrl: variants[index]?.imageUrl,
+    rawData: variants[index]?.rawData as Record<string, unknown>
+  })) });
 
   return prisma.product.upsert({
     where: { userId_miaoshouProductId: { userId, miaoshouProductId: product.id } },
@@ -34,8 +54,8 @@ export async function upsertMiaoshouProduct(product: MiaoshouProduct, userId: st
       ...(images.length > 0
         ? {
             images: {
-              deleteMany: {},
-              create: images
+              deleteMany: incomingHasSkuImages ? {} : { type: { not: ProductImageType.SKU_IMAGE } },
+              create: incomingHasSkuImages ? images : images.filter((image) => image.type !== ProductImageType.SKU_IMAGE)
             }
           }
         : {})
