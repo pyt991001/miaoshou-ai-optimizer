@@ -136,7 +136,10 @@ export class RealMiaoshouClient implements MiaoshouClient {
     const data = asRecord(raw.data);
     const list = Array.isArray(data.detailList) ? data.detailList : [];
     const summaries = list.map((item) => this.mapProduct(asRecord(item)));
-    const products = await mapWithConcurrency(summaries, 5, async (summary) => {
+    // The detail endpoint enforces an account-level QPS limit. Parallel detail
+    // requests cause otherwise valid products to fall back to list summaries,
+    // which do not contain SKU variants or SKU images.
+    const products = await mapWithConcurrency(summaries, 1, async (summary) => {
       if (!summary.id) return summary;
       try {
         const detail = await this.getProduct(summary.id);
