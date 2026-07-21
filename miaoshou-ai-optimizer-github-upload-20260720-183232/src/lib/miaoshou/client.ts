@@ -293,7 +293,11 @@ export class RealMiaoshouClient implements MiaoshouClient {
 
   private mapProduct(item: JsonRecord, raw: JsonRecord = item): MiaoshouProduct {
     const id = stringValue(item.commonCollectBoxDetailId ?? item.collectBoxDetailId ?? item.detailId ?? item.id) ?? "";
-    const variants = variantsFrom(item.skuMap, item, raw);
+    const variants = variantsFrom(
+      item.skuMap ?? item.skuList ?? item.skus ?? item.variantList ?? item.variants ?? item.specList,
+      item,
+      raw
+    );
     const variantImageUrls = uniqueStrings(
       variants.flatMap((variant) => [variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]).filter(isPublicImageUrl)
     );
@@ -620,9 +624,9 @@ type SkuImageCandidate = {
 };
 
 function variantsFrom(value: unknown, item?: JsonRecord, raw?: JsonRecord): MiaoshouProduct["variants"] {
-  const skuMap = asRecord(value);
+  const entries = variantEntriesFrom(value);
   const skuImageCandidates = skuImageCandidatesFromUnknown([item, raw]);
-  return Object.entries(skuMap).map(([sku, raw]) => {
+  return entries.map(([sku, raw]) => {
     const record = asRecord(raw);
     const variantSku = stringValue(record.itemNum) ?? sku;
     const variantKeys = variantMatchKeys(variantSku, sku, record);
@@ -646,6 +650,24 @@ function variantsFrom(value: unknown, item?: JsonRecord, raw?: JsonRecord): Miao
       }
     };
   });
+}
+
+function variantEntriesFrom(value: unknown): Array<[string, unknown]> {
+  if (Array.isArray(value)) {
+    return value.map((raw, index) => {
+      const record = asRecord(raw);
+      const key =
+        stringValue(record.itemNum ?? record.sku ?? record.skuId ?? record.skuCode ?? record.sellerSku ?? record.variantId) ??
+        `sku-${index + 1}`;
+      return [key, raw];
+    });
+  }
+
+  const record = asRecord(value);
+  for (const key of ["list", "items", "rows", "data", "skuList", "skus", "variants"]) {
+    if (Array.isArray(record[key])) return variantEntriesFrom(record[key]);
+  }
+  return Object.entries(record);
 }
 
 function skuImageCandidatesFromUnknown(value: unknown, parentKeys: string[] = [], depth = 0): SkuImageCandidate[] {
