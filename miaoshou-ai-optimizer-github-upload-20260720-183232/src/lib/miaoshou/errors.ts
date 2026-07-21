@@ -27,6 +27,7 @@ export function mapMiaoshouError(code?: string, message?: string, raw?: unknown)
       return new MiaoshouApiError("Miaoshou rejected this server IP. Add the server IP to the Miaoshou API whitelist.", "IP_WHITE_LIST_ERROR", false, raw);
     case "RATE_LIMIT":
     case "accountQpsRateLimit":
+    case "accountApiQpsRateLimit":
     case "accountQpmRateLimit":
     case "accountQpdRateLimit":
     case "appQpsRateLimit":
