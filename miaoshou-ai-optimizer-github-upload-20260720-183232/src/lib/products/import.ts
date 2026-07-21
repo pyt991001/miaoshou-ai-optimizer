@@ -2,7 +2,7 @@ import { Prisma, ProductImageType, ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { MiaoshouProduct } from "@/lib/miaoshou/types";
 
-export async function upsertMiaoshouProduct(product: MiaoshouProduct) {
+export async function upsertMiaoshouProduct(product: MiaoshouProduct, userId: string) {
   const variants = product.variants.map((variant) => ({
     sku: variant.sku,
     name: variant.name,
@@ -14,7 +14,7 @@ export async function upsertMiaoshouProduct(product: MiaoshouProduct) {
   const images = buildImages(product);
 
   return prisma.product.upsert({
-    where: { miaoshouProductId: product.id },
+    where: { userId_miaoshouProductId: { userId, miaoshouProductId: product.id } },
     update: {
       originalTitle: product.title,
       status: product.status as ProductStatus,
@@ -41,6 +41,7 @@ export async function upsertMiaoshouProduct(product: MiaoshouProduct) {
         : {})
     },
     create: {
+      userId,
       miaoshouProductId: product.id,
       originalTitle: product.title,
       status: product.status as ProductStatus,
@@ -101,10 +102,7 @@ function imageUrlsFromUnknown(value: unknown, depth = 0): string[] {
   if (typeof value === "string") return isImageUrl(value) ? [value] : [];
   if (Array.isArray(value)) return value.flatMap((item) => imageUrlsFromUnknown(item, depth + 1));
   if (typeof value !== "object") return [];
-  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => {
-    if (!/(img|image|pic|picture|thumbnail|photo|detail|sku|spec|url)/i.test(key)) return [];
-    return imageUrlsFromUnknown(child, depth + 1);
-  });
+  return Object.values(value as Record<string, unknown>).flatMap((child) => imageUrlsFromUnknown(child, depth + 1));
 }
 
 function isImageUrl(value: string) {

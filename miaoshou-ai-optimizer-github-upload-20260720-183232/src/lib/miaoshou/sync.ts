@@ -18,10 +18,10 @@ function assertPublicImageUrls(urls: string[]) {
   }
 }
 
-export async function saveProductToMiaoshou(productId: string, saveMode: SaveMode) {
+export async function saveProductToMiaoshou(productId: string, saveMode: SaveMode, userId: string) {
   const product = await prisma.product
-    .findUnique({
-      where: { id: productId },
+    .findFirst({
+      where: { id: productId, userId },
       include: {
         images: {
           orderBy: { sortOrder: "asc" },

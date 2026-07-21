@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export function SettingsForm({ provider }: { provider: "OPENAI" | "MIAOSHOU" }) {
+export function SettingsForm({ provider }: { provider: "OPENAI" | "MIAOSHOU" | "STORAGE" }) {
   const [saved, setSaved] = useState(false);
   return (
     <form
@@ -26,7 +26,7 @@ export function SettingsForm({ provider }: { provider: "OPENAI" | "MIAOSHOU" }) 
           <input name="textModel" className="rounded-md border border-line px-3 py-2" placeholder="OPENAI_TEXT_MODEL，例如 gpt-4.1-mini" />
           <input name="imageModel" className="rounded-md border border-line px-3 py-2" placeholder="OPENAI_IMAGE_MODEL，例如 gpt-image-2" />
         </>
-      ) : (
+      ) : provider === "MIAOSHOU" ? (
         <>
           <input name="baseUrl" className="rounded-md border border-line px-3 py-2" placeholder="MIAOSHOU_API_BASE_URL" />
           <input name="appKey" className="rounded-md border border-line px-3 py-2" placeholder="MIAOSHOU_APP_KEY" />
@@ -36,8 +36,17 @@ export function SettingsForm({ provider }: { provider: "OPENAI" | "MIAOSHOU" }) 
           <input name="targetBox" className="rounded-md border border-line px-3 py-2" placeholder="MIAOSHOU_TARGET_BOX：public" />
           <input name="targetSite" className="rounded-md border border-line px-3 py-2" placeholder="MIAOSHOU_TARGET_SITE，可选" />
         </>
+      ) : (
+        <>
+          <input name="endpoint" className="rounded-md border border-line px-3 py-2" placeholder="R2 S3_ENDPOINT" />
+          <input name="region" className="rounded-md border border-line px-3 py-2" placeholder="Region，通常为 auto" defaultValue="auto" />
+          <input name="bucket" className="rounded-md border border-line px-3 py-2" placeholder="Bucket，例如 miaoshou-images" />
+          <input name="publicBaseUrl" className="rounded-md border border-line px-3 py-2" placeholder="公网域名，例如 https://img.example.com" />
+          <input name="accessKeyId" className="rounded-md border border-line px-3 py-2" placeholder="R2 Access Key ID" />
+          <input name="secretAccessKey" className="rounded-md border border-line px-3 py-2" placeholder="R2 Secret Access Key" type="password" />
+        </>
       )}
-      <button className="w-fit rounded-md bg-accent px-4 py-2 text-sm text-white">加密保存</button>
+      <button className="w-fit rounded-md bg-accent px-4 py-2 text-sm text-white">加密覆盖当前账户配置</button>
       {saved ? <div className="text-sm text-accent">已保存，密钥不会返回浏览器。</div> : null}
     </form>
   );

@@ -6,10 +6,17 @@ import { prepareImageForOpenAI } from "@/lib/openai/image-download";
 import { optimizeProductImage } from "@/lib/openai/image-service";
 import { optimizeTitle } from "@/lib/openai/title-service";
 import { findLocalProduct, updateLocalProductOptimizedImages, updateLocalProductStatus, updateLocalProductTitle } from "@/lib/products/local-store";
+import { requireUser } from "@/lib/auth/session";
+import { runWithAccountConfig } from "@/lib/config/account-runtime";
 
 const imageTimeoutMs = 480_000;
 
 export async function POST(request: NextRequest, context: { params: Promise<{ productId: string }> }) {
+  const user = await requireUser();
+  return runWithAccountConfig(user.id, () => regenerate(request, context, user.id));
+}
+
+async function regenerate(request: NextRequest, context: { params: Promise<{ productId: string }> }, userId: string) {
   let currentProductId: string | null = null;
   let isLocalProduct = false;
   try {
@@ -18,8 +25,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pr
     const body = (await request.json().catch(() => ({}))) as { type?: "title" | "image"; imageIds?: string[]; ruleProfileId?: string };
 
     const dbProduct = await prisma.product
-      .findUnique({
-        where: { id: productId },
+      .findFirst({
+        where: { id: productId, userId },
         include: {
           images: true,
           titleOptimizations: { orderBy: { createdAt: "desc" } }
@@ -81,7 +88,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ pr
             })
           );
         }
-        return NextResponse.json({ ok: true, type: "image", storage: "database", regenerated: records.length, message: "图片已通过 OpenAI 洗图生成" });
+        return NextResponse.json({
+          ok: true,
+          type: "image",
+          storage: "database",
+          regenerated: records.length,
+          optimizedUrls: records.map((record) => record.optimizedUrl).filter(Boolean),
+          message: "图片已通过 OpenAI 洗图生成"
+        });
       }
       const optimizedByImageId: Record<string, string> = {};
       const imagesToProcess = selectImagesForRegeneration(localProduct?.images ?? [], body.imageIds);

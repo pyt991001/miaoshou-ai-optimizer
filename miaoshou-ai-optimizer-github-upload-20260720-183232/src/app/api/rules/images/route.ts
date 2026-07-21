@@ -1,14 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { defaultImagePrompt, modelTryOnPrompt } from "@/lib/openai/image-rules";
 import { readImageRuleConfig, saveImageRuleConfig, type StoredImageRuleProfile, type StoredImageRules } from "@/lib/openai/image-rule-config";
+import { requireUser } from "@/lib/auth/session";
+import { runWithAccountConfig } from "@/lib/config/account-runtime";
 
 export async function GET() {
-  const config = await readImageRuleConfig();
+  const user = await requireUser();
+  const config = await runWithAccountConfig(user.id, () => readImageRuleConfig());
   const rules = config.profiles.find((profile) => profile.id === config.activeProfileId) ?? config.profiles[0];
   return NextResponse.json({ rules, config, templates: { standard: defaultImagePrompt, model_try_on: modelTryOnPrompt } });
 }
 
 export async function POST(request: NextRequest) {
+  const user = await requireUser();
+  return runWithAccountConfig(user.id, () => saveRules(request));
+}
+
+async function saveRules(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as Partial<StoredImageRules> & {
     activeProfileId?: string;
     profileId?: string;

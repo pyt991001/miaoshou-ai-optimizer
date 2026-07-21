@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { currentAccountEnv } from "@/lib/config/account-runtime";
 
 const envBoolean = (defaultValue: boolean) =>
   z.preprocess((value) => {
@@ -17,6 +18,9 @@ const envSchema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   APP_ENCRYPTION_KEY: z.string().min(16).default("dev-only-change-this-key-32-bytes"),
+  APP_SESSION_SECRET: z.string().min(32).default("dev-only-session-secret-change-me-32"),
+  ADMIN_EMAIL: z.string().email().optional(),
+  ADMIN_PASSWORD: z.string().min(10).optional(),
   APP_PASSWORD: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.preprocess((value) => (value === "" ? undefined : value), z.string().url().optional()),
@@ -55,5 +59,8 @@ const envSchema = z.object({
 export type AppEnv = z.infer<typeof envSchema>;
 
 export function getEnv(): AppEnv {
-  return envSchema.parse(process.env);
+  const account = currentAccountEnv();
+  const merged = { ...process.env } as Record<string, string | undefined>;
+  for (const [key, value] of Object.entries(account)) if (value !== undefined) merged[key] = value;
+  return envSchema.parse(merged);
 }

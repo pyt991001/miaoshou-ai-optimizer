@@ -8,6 +8,8 @@ const items = [
   ["标题规则", "/rules/titles"],
   ["妙手配置", "/settings/miaoshou"],
   ["OpenAI 配置", "/settings/openai"],
+  ["R2 图片存储", "/settings/storage"],
+  ["子账户管理", "/accounts"],
   ["日志", "/logs"]
 ];
 

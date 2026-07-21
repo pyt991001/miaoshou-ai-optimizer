@@ -2,15 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { SaveMode } from "@prisma/client";
 import { saveLocalProductToMiaoshou, saveProductToMiaoshou } from "@/lib/miaoshou/sync";
 import { updateLocalProductStatus } from "@/lib/products/local-store";
+import { requireUser } from "@/lib/auth/session";
+import { runWithAccountConfig } from "@/lib/config/account-runtime";
 
 export async function POST(request: NextRequest) {
+  const user = await requireUser();
+  return runWithAccountConfig(user.id, () => sync(request, user.id));
+}
+
+async function sync(request: NextRequest, userId: string) {
   let body: { productId: string; saveMode?: SaveMode } | null = null;
   try {
     body = (await request.json()) as { productId: string; saveMode?: SaveMode };
     if (body.productId.startsWith("local-")) await updateLocalProductStatus(body.productId, "SAVING_TO_MIAOSHOU");
     const record = body.productId.startsWith("local-")
       ? await saveLocalProductToMiaoshou(body.productId, body.saveMode ?? SaveMode.LOCAL_ONLY)
-      : await saveProductToMiaoshou(body.productId, body.saveMode ?? SaveMode.LOCAL_ONLY);
+      : await saveProductToMiaoshou(body.productId, body.saveMode ?? SaveMode.LOCAL_ONLY, userId);
     if (body.productId.startsWith("local-")) await updateLocalProductStatus(body.productId, "COMPLETED");
     return NextResponse.json(record);
   } catch (error) {

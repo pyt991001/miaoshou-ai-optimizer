@@ -2,14 +2,17 @@ import { ImportProductsButton } from "@/components/import-products-button";
 import { ProductsTable } from "@/components/products-table";
 import { prisma } from "@/lib/db/prisma";
 import { safeQuery } from "@/lib/db/safe-query";
-import { readLocalProducts } from "@/lib/products/local-store";
+import type { LocalProduct } from "@/lib/products/local-store";
+import { requirePageUser } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
+  const user = await requirePageUser();
   const dbProducts = await safeQuery(
     () =>
       prisma.product.findMany({
+        where: { userId: user.id },
         include: {
           variants: true,
           images: {
@@ -23,7 +26,7 @@ export default async function ProductsPage() {
     [],
     "products-page-list"
   );
-  const localProducts = dbProducts.length === 0 ? await readLocalProducts() : [];
+  const localProducts: LocalProduct[] = [];
   const rows =
     dbProducts.length > 0
       ? dbProducts.map((product) => ({

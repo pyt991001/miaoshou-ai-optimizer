@@ -5,8 +5,10 @@ import { createProcessingQueue } from "@/lib/jobs/queue";
 import { createMiaoshouClient } from "@/lib/miaoshou/client";
 import { upsertMiaoshouProduct } from "@/lib/products/import";
 import { optimizeTitle } from "@/lib/openai/title-service";
+import { runWithAccountConfig } from "@/lib/config/account-runtime";
 
 export async function createProcessingJob(input: {
+  userId: string;
   name: string;
   miaoshouProductIds: string[];
   saveMode?: "LOCAL_ONLY" | "PUBLIC_COLLECTION_BOX" | "PLATFORM_COLLECTION_BOX";
@@ -14,6 +16,7 @@ export async function createProcessingJob(input: {
 }) {
   const job = await prisma.processingJob.create({
     data: {
+      userId: input.userId,
       name: input.name,
       saveMode: input.saveMode ?? "LOCAL_ONLY",
       totalProducts: input.miaoshouProductIds.length,
@@ -33,9 +36,14 @@ export async function createProcessingJob(input: {
 }
 
 export async function processProduct(miaoshouProductId: string, processingJobId: string) {
+  const job = await prisma.processingJob.findUniqueOrThrow({ where: { id: processingJobId }, select: { userId: true } });
+  return runWithAccountConfig(job.userId, () => processProductWithConfig(miaoshouProductId, processingJobId, job.userId));
+}
+
+async function processProductWithConfig(miaoshouProductId: string, processingJobId: string, userId: string) {
   const client = createMiaoshouClient();
   const remote = await client.getProduct(miaoshouProductId);
-  const product = await upsertMiaoshouProduct(remote);
+  const product = await upsertMiaoshouProduct(remote, userId);
   await prisma.product.update({ where: { id: product.id }, data: { processingStatus: ProcessingStatus.OPTIMIZING_TITLE } });
   const titleResult = await optimizeTitle({
     originalTitle: product.originalTitle,

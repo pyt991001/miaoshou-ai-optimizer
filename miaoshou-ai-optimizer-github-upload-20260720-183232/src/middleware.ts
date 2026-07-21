@@ -1,32 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATH_PREFIXES = ["/_next", "/favicon.ico", "/robots.txt"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health"];
+const PUBLIC_PREFIXES = ["/_next", "/favicon.ico", "/robots.txt"];
 
 export function middleware(request: NextRequest) {
-  const password = process.env.APP_PASSWORD;
-  if (!password) return NextResponse.next();
-
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return NextResponse.next();
-  }
-
-  const auth = request.headers.get("authorization");
-  if (auth?.startsWith("Basic ")) {
-    const decoded = atob(auth.slice("Basic ".length));
-    const separatorIndex = decoded.indexOf(":");
-    const inputPassword = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "";
-    if (inputPassword === password) return NextResponse.next();
-  }
-
-  return new NextResponse("需要密码才能访问商品 AI 优化系统", {
-    status: 401,
-    headers: {
-      "WWW-Authenticate": 'Basic realm="Miaoshou AI Optimizer", charset="UTF-8"'
-    }
-  });
+  if (PUBLIC_PATHS.includes(pathname) || PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return NextResponse.next();
+  if (request.cookies.has("miaoshou_session")) return NextResponse.next();
+  if (pathname.startsWith("/api/")) return NextResponse.json({ error: "UNAUTHORIZED", message: "请先登录" }, { status: 401 });
+  const login = new URL("/login", request.url);
+  login.searchParams.set("next", pathname);
+  return NextResponse.redirect(login);
 }
 
-export const config = {
-  matcher: ["/((?!api/health).*)"]
-};
+export const config = { matcher: ["/((?!.*\\..*).*)"] };

@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/db/prisma";
 import { safeQuery } from "@/lib/db/safe-query";
+import { requirePageUser } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function LogsPage() {
+  const user = await requirePageUser();
   const [errors, audits] = await Promise.all([
-    safeQuery(() => prisma.errorLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }), [], "logs-errors"),
-    safeQuery(() => prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }), [], "logs-audits")
+    safeQuery(() => prisma.errorLog.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 50 }), [], "logs-errors"),
+    safeQuery(() => prisma.auditLog.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" }, take: 50 }), [], "logs-audits")
   ]);
   return (
     <div className="space-y-6">

@@ -3,8 +3,11 @@ import { prisma } from "@/lib/db/prisma";
 import { createMiaoshouClient } from "@/lib/miaoshou/client";
 import { readLocalProducts, importMiaoshouProductsLocally, clearLocalProducts } from "@/lib/products/local-store";
 import { upsertMiaoshouProduct } from "@/lib/products/import";
+import { requireUser } from "@/lib/auth/session";
+import { runWithAccountConfig } from "@/lib/config/account-runtime";
 
 export async function GET(request: NextRequest) {
+  const user = await requireUser();
   const params = request.nextUrl.searchParams;
   const page = Number(params.get("page") ?? 1);
   const pageSize = Number(params.get("pageSize") ?? 20);
@@ -13,6 +16,7 @@ export async function GET(request: NextRequest) {
   try {
     const local = await prisma.product.findMany({
       where: {
+        userId: user.id,
         originalTitle: keyword ? { contains: keyword, mode: "insensitive" } : undefined,
         processingStatus: status && status !== "ALL" ? (status as never) : undefined
       },
@@ -21,7 +25,7 @@ export async function GET(request: NextRequest) {
       skip: (page - 1) * pageSize,
       take: pageSize
     });
-    const total = await prisma.product.count();
+    const total = await prisma.product.count({ where: { userId: user.id } });
     return NextResponse.json({ products: local, page, pageSize, total, storage: "database" });
   } catch {
     const products = await readLocalProducts();
@@ -41,10 +45,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST() {
+  const user = await requireUser();
   let result;
   try {
-    const client = createMiaoshouClient();
-    result = await client.listProducts({ page: 1, pageSize: 50 });
+    result = await runWithAccountConfig(user.id, () => createMiaoshouClient().listProducts({ page: 1, pageSize: 50 }));
   } catch (error) {
     return NextResponse.json(
       {
@@ -66,7 +70,7 @@ export async function POST() {
   try {
     const products = [];
     for (const item of result.products) {
-      products.push(await upsertMiaoshouProduct(item));
+      products.push(await upsertMiaoshouProduct(item, user.id));
     }
     return NextResponse.json({ ok: true, imported: products.length, available: result.total, products, storage: "database" });
   } catch (databaseError) {
@@ -94,22 +98,23 @@ export async function POST() {
 }
 
 export async function DELETE() {
+  const user = await requireUser();
   let deletedFromDatabase: number;
   try {
     const result = await prisma.$transaction(async (tx) => {
       await tx.processingTask.updateMany({
-        where: { productId: { not: null } },
+        where: { product: { userId: user.id } },
         data: { productId: null }
       });
 
       // Keep this order explicit. It also works with databases created before
       // all cascade-delete constraints were added to the Prisma schema.
-      await tx.imageOptimization.deleteMany();
-      await tx.titleOptimization.deleteMany();
-      await tx.miaoshouSyncRecord.deleteMany();
-      await tx.productImage.deleteMany();
-      await tx.productVariant.deleteMany();
-      return tx.product.deleteMany();
+      await tx.imageOptimization.deleteMany({ where: { image: { product: { userId: user.id } } } });
+      await tx.titleOptimization.deleteMany({ where: { product: { userId: user.id } } });
+      await tx.miaoshouSyncRecord.deleteMany({ where: { product: { userId: user.id } } });
+      await tx.productImage.deleteMany({ where: { product: { userId: user.id } } });
+      await tx.productVariant.deleteMany({ where: { product: { userId: user.id } } });
+      return tx.product.deleteMany({ where: { userId: user.id } });
     });
     deletedFromDatabase = result.count;
   } catch (error) {

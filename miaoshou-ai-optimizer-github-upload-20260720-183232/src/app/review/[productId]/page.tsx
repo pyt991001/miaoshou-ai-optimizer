@@ -3,18 +3,20 @@ import { ReviewImageSelector } from "@/components/review-image-selector";
 import { prisma } from "@/lib/db/prisma";
 import { safeQuery } from "@/lib/db/safe-query";
 import { findLocalProduct, type LocalProduct } from "@/lib/products/local-store";
+import { requirePageUser } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReviewPage({ params }: { params: Promise<{ productId: string }> }) {
+  const user = await requirePageUser();
   const { productId } = await params;
   const dbProduct = await safeQuery(
     () =>
-      prisma.product.findUnique({
-        where: { id: productId },
+      prisma.product.findFirst({
+        where: { id: productId, userId: user.id },
         include: {
           variants: true,
-          images: { include: { optimizations: true }, orderBy: { sortOrder: "asc" } },
+          images: { include: { optimizations: { orderBy: { createdAt: "desc" } } }, orderBy: { sortOrder: "asc" } },
           titleOptimizations: { orderBy: { createdAt: "desc" } },
           syncRecords: { orderBy: { createdAt: "desc" } }
         }
@@ -22,7 +24,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ product
     null,
     "review-page"
   );
-  const localProduct = dbProduct ? null : await findLocalProduct(productId);
+  const localProduct = null;
   const product = dbProduct ?? (localProduct ? toReviewProduct(localProduct) : null);
   if (!product) return <div>商品不存在</div>;
   const latestTitle = product.titleOptimizations[0];
@@ -132,10 +134,7 @@ function imageUrlsFromUnknown(value: unknown, depth = 0): string[] {
   if (typeof value === "string") return isImageUrl(value) ? [value] : [];
   if (Array.isArray(value)) return value.flatMap((item) => imageUrlsFromUnknown(item, depth + 1));
   if (typeof value !== "object") return [];
-  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => {
-    if (!/(img|image|pic|picture|thumbnail|photo|detail|sku|spec|url)/i.test(key)) return [];
-    return imageUrlsFromUnknown(child, depth + 1);
-  });
+  return Object.values(value as Record<string, unknown>).flatMap((child) => imageUrlsFromUnknown(child, depth + 1));
 }
 
 function isImageUrl(value: string) {

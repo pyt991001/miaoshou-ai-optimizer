@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { defaultImagePrompt, defaultRules, modelTryOnPrompt, type ImageOptimizationRules } from "@/lib/openai/image-rules";
 import type { ProductImageType } from "@prisma/client";
+import { prisma } from "@/lib/db/prisma";
+import { currentAccountUserId } from "@/lib/config/account-runtime";
 
 export type StoredImageRules = Omit<ImageOptimizationRules, "image_type">;
 export type StoredImageRuleProfile = StoredImageRules & {
@@ -76,6 +78,15 @@ export async function readStoredImageRules(): Promise<Partial<StoredImageRules>>
 }
 
 export async function readImageRuleConfig(): Promise<StoredImageRuleConfig> {
+  const userId = currentAccountUserId();
+  if (userId) {
+    const setting = await prisma.systemSetting.findUnique({ where: { userId_key: { userId, key: "image_rules" } } });
+    if (!setting) return { activeProfileId: defaultImageRuleProfiles[0].id, profiles: defaultImageRuleProfiles };
+    const parsed = setting.valueJson as unknown as StoredImageRuleConfig;
+    const profiles = mergeDefaultProfiles(Array.isArray(parsed.profiles) ? parsed.profiles.map(cleanProfile) : []);
+    const activeProfileId = profiles.some((profile) => profile.id === parsed.activeProfileId) ? parsed.activeProfileId : profiles[0].id;
+    return { activeProfileId, profiles };
+  }
   try {
     const raw = await fs.readFile(configFile, "utf8");
     const parsed = JSON.parse(raw) as Partial<StoredImageRuleConfig> & Partial<StoredImageRules>;
@@ -121,6 +132,11 @@ export async function saveImageRuleConfig(config: StoredImageRuleConfig): Promis
   const profiles = mergeDefaultProfiles(config.profiles.map(cleanProfile));
   const activeProfileId = profiles.some((profile) => profile.id === config.activeProfileId) ? config.activeProfileId : profiles[0].id;
   const next = { activeProfileId, profiles };
+  const userId = currentAccountUserId();
+  if (userId) {
+    await prisma.systemSetting.upsert({ where: { userId_key: { userId, key: "image_rules" } }, update: { valueJson: next }, create: { userId, key: "image_rules", valueJson: next } });
+    return next;
+  }
   await fs.mkdir(path.dirname(configFile), { recursive: true });
   await fs.writeFile(configFile, JSON.stringify(next, null, 2));
   return next;

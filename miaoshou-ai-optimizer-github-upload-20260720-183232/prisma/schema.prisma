@@ -64,26 +64,45 @@ enum ApiProvider {
   STORAGE
 }
 
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
 model User {
   id           String     @id @default(cuid())
   email        String     @unique
   passwordHash String
   name         String?
+  role         UserRole   @default(MEMBER)
+  active       Boolean    @default(true)
+  sessionVersion Int      @default(1)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   auditLogs    AuditLog[]
+  settings     SystemSetting[]
+  credentials  ApiCredential[]
+  products     Product[]
+  jobs         ProcessingJob[]
+  apiUsage     ApiUsageRecord[]
+  errorLogs    ErrorLog[]
 }
 
 model SystemSetting {
   id        String   @id @default(cuid())
-  key       String   @unique
+  userId    String
+  key       String
   valueJson Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, key])
+  @@index([userId])
 }
 
 model ApiCredential {
   id               String      @id @default(cuid())
+  userId           String
   provider         ApiProvider
   name             String
   encryptedPayload String
@@ -91,12 +110,14 @@ model ApiCredential {
   active           Boolean     @default(true)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
-  @@index([provider, active])
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, provider, active])
 }
 
 model Product {
   id               String              @id @default(cuid())
-  miaoshouProductId String             @unique
+  userId           String
+  miaoshouProductId String
   originalTitle    String
   optimizedTitle   String?
   status           ProductStatus       @default(UNKNOWN)
@@ -113,6 +134,9 @@ model Product {
   titleOptimizations TitleOptimization[]
   syncRecords      MiaoshouSyncRecord[]
   tasks            ProcessingTask[]
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, miaoshouProductId])
+  @@index([userId, updatedAt])
 }
 
 model ProductVariant {
@@ -147,6 +171,7 @@ model ProductImage {
 
 model ProcessingJob {
   id              String           @id @default(cuid())
+  userId          String
   name            String
   status          ProcessingStatus @default(PENDING)
   saveMode        SaveMode         @default(LOCAL_ONLY)
@@ -158,6 +183,8 @@ model ProcessingJob {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   tasks           ProcessingTask[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
 }
 
 model ProcessingTask {
@@ -240,6 +267,7 @@ model MiaoshouSyncRecord {
 
 model ApiUsageRecord {
   id           String      @id @default(cuid())
+  userId       String
   provider     ApiProvider
   operation    String
   productId    String?
@@ -250,11 +278,13 @@ model ApiUsageRecord {
   costUsd      Decimal     @default(0)
   requestId    String?
   createdAt    DateTime    @default(now())
-  @@index([provider, createdAt])
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, provider, createdAt])
 }
 
 model ErrorLog {
   id           String   @id @default(cuid())
+  userId       String
   scope        String
   code         String?
   message      String
@@ -262,6 +292,8 @@ model ErrorLog {
   context      Json?
   createdAt    DateTime @default(now())
   resolvedAt   DateTime?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
 }
 
 model AuditLog {
