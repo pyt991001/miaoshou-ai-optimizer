@@ -71,7 +71,7 @@ export default async function JobsPage() {
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
       take: 30,
-      include: { tasks: { orderBy: { createdAt: "asc" } } }
+      include: { tasks: { orderBy: { createdAt: "asc" }, include: { product: { select: { miaoshouProductId: true } } } } }
     })
   ]);
   const products: ProgressProduct[] = dbProducts.map((product) => ({
@@ -196,7 +196,7 @@ export default async function JobsPage() {
   );
 }
 
-function ImageJobItem({ job }: { job: Awaited<ReturnType<typeof prisma.processingJob.findMany>>[number] & { tasks: Array<{ status: string; errorMessage: string | null }> } }) {
+function ImageJobItem({ job }: { job: Awaited<ReturnType<typeof prisma.processingJob.findMany>>[number] & { tasks: Array<{ status: string; errorMessage: string | null; payload: unknown; product?: { miaoshouProductId: string } | null }> } }) {
   const completed = job.tasks.filter((task) => task.status === "COMPLETED").length;
   const failed = job.tasks.filter((task) => task.status === "FAILED").length;
   const processing = job.tasks.filter((task) => runningStatuses.has(task.status)).length;
@@ -204,6 +204,7 @@ function ImageJobItem({ job }: { job: Awaited<ReturnType<typeof prisma.processin
   const total = job.tasks.length || job.totalProducts;
   const progress = total ? Math.round(((completed + failed) / total) * 100) : 0;
   const firstError = job.tasks.find((task) => task.errorMessage)?.errorMessage;
+  const failedTasks = job.tasks.filter((task) => task.status === "FAILED");
   const isFinished = !runningStatuses.has(job.status) && job.status !== "PENDING";
   const resultText = job.status === "COMPLETED" ? "全部成功" : job.status === "FAILED" ? "全部失败" : job.status === "PARTIALLY_COMPLETED" ? "部分完成" : "处理中";
   return (
@@ -218,6 +219,19 @@ function ImageJobItem({ job }: { job: Awaited<ReturnType<typeof prisma.processin
             共 {total} 张 · 正在请求 {processing} · 等待 {waiting} · 成功 {completed} · 失败 {failed}
           </div>
           {firstError ? <div className="mt-2 text-xs text-red-700">第一个错误：{firstError}</div> : null}
+          {failedTasks.length > 0 ? (
+            <div className="mt-3 space-y-1 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              <div className="font-semibold">失败详情</div>
+              {failedTasks.map((task, index) => {
+                const payload = task.payload && typeof task.payload === "object" ? task.payload as Record<string, unknown> : {};
+                return (
+                  <div key={`${String(payload.imageId ?? "image")}-${index}`}>
+                    商品 {task.product?.miaoshouProductId ?? "未知"} · 图片 {String(payload.imageId ?? index + 1)}：{task.errorMessage ?? "未知错误"}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
         <div className="w-full sm:w-64">
           <div className="mb-1 flex justify-between text-xs text-slate-500"><span>实时进度</span><span>{progress}%</span></div>
