@@ -46,13 +46,13 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
     buffer = await mockImageEdit(input.originalPath, rules.output_format);
   } else {
     // Strict single-request mode: never let the SDK or application submit this
-    // image a second time. Wait up to five minutes for this one request only.
-    const client = new OpenAI({ apiKey: imageApiKey, baseURL: imageBaseUrl || undefined, maxRetries: 0, timeout: 300_000 });
+    // image a second time. Wait up to fifteen minutes for this one request only.
+    const client = new OpenAI({ apiKey: imageApiKey, baseURL: imageBaseUrl || undefined, maxRetries: 0, timeout: 900_000 });
     const modelReferencePath = rules.model_reference_image_url ? await downloadReferenceImage(rules.model_reference_image_url) : null;
     const imageInputPath = modelReferencePath && rules.template === "model_try_on" ? await buildTryOnReferenceSheet(input.originalPath, modelReferencePath) : input.originalPath;
     const imageFile = await imagePathToPngFile(imageInputPath);
 
-    console.info("[image-generation] single API request started", { timeoutMs: 300_000 });
+    console.info("[image-generation] single API request started", { timeoutMs: 900_000 });
     const response = await client.images
       .edit({
         model: env.OPENAI_IMAGE_MODEL,
