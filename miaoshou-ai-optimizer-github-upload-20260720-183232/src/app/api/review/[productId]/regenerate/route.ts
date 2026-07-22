@@ -9,7 +9,7 @@ import { findLocalProduct, updateLocalProductOptimizedImages, updateLocalProduct
 import { requireUser } from "@/lib/auth/session";
 import { runWithAccountConfig } from "@/lib/config/account-runtime";
 
-const imageTimeoutMs = 305_000;
+const imageTimeoutMs = 905_000;
 
 export async function POST(request: NextRequest, context: { params: Promise<{ productId: string }> }) {
   const user = await requireUser();
@@ -68,7 +68,7 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
                 ruleProfileId: body.ruleProfileId
               }),
               imageTimeoutMs,
-              "单次洗图等待已超过 5 分钟，已停止等待；系统没有自动发起第二次请求。"
+              "单次洗图等待已超过 15 分钟，已停止等待；系统没有自动发起第二次请求。"
             );
             if (!result.optimizedUrl) throw new Error("图片 AI 返回成功，但没有生成优化图片地址。");
             records.push(
@@ -122,7 +122,7 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
               ruleProfileId: body.ruleProfileId
             }),
             imageTimeoutMs,
-            "单次洗图等待已超过 5 分钟，已停止等待；系统没有自动发起第二次请求。"
+            "单次洗图等待已超过 15 分钟，已停止等待；系统没有自动发起第二次请求。"
           );
           if (!result.optimizedUrl) throw new Error("图片 AI 返回成功，但没有生成优化图片地址。");
           optimizedByImageId[image.id] = result.optimizedUrl;
