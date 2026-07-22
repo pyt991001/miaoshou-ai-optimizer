@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import OpenAI, { toFile } from "openai";
 import sharp from "sharp";
 import { getEnv } from "@/lib/config/env";
@@ -17,6 +16,7 @@ export interface ImageOptimizationInput {
   imageType: ProductImageType;
   ruleProfileId?: string;
   rules?: Partial<ImageOptimizationRules>;
+  storageFileStem?: string;
 }
 
 export interface ImageOptimizationResult {
@@ -85,8 +85,11 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
     title: input.title
   });
 
-  const key = `optimized/${Date.now()}-${randomUUID()}-${path.basename(input.originalPath).replace(/\.[^.]+$/, "")}.${rules.output_format}`;
-  const stored = await getStorageDriver().put(buffer, key, `image/${rules.output_format}`);
+  const storage = getStorageDriver();
+  const requestedStem = input.storageFileStem || path.basename(input.originalPath).replace(/\.[^.]+$/, "");
+  const safeStem = requestedStem.replace(/[^a-zA-Z0-9_-]/g, "_") || "image";
+  const key = await nextAvailableKey(storage, `optimized/${safeStem}`, rules.output_format);
+  const stored = await storage.put(buffer, key, `image/${rules.output_format}`);
 
   return {
     optimizedUrl: stored.url,
@@ -98,6 +101,14 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
     validation,
     costUsd: 0
   };
+}
+
+async function nextAvailableKey(storage: ReturnType<typeof getStorageDriver>, base: string, extension: string): Promise<string> {
+  let candidateBase = base;
+  // Repeated products must never overwrite an earlier R2 result. Keep adding
+  // a trailing zero until a free object key is found; there is no retry cap.
+  while (await storage.exists(`${candidateBase}.${extension}`)) candidateBase += "0";
+  return `${candidateBase}.${extension}`;
 }
 
 async function mockImageEdit(filePath: string, format: "png" | "jpeg"): Promise<Buffer> {
