@@ -97,7 +97,8 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
                 title: dbProduct.optimizedTitle ?? dbProduct.originalTitle,
                 category: dbProduct.category ?? undefined,
                 imageType: image.type,
-                ruleProfileId: body.ruleProfileId
+                ruleProfileId: body.ruleProfileId,
+                storageFileStem: dbProduct.miaoshouProductId
               }),
               imageTimeoutMs,
               "单次洗图等待已超过 15 分钟，已停止等待；系统没有自动发起第二次请求。"
@@ -178,7 +179,8 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
               title: product.optimizedTitle ?? product.originalTitle,
               category: product.category ?? undefined,
               imageType: image.type,
-              ruleProfileId: body.ruleProfileId
+              ruleProfileId: body.ruleProfileId,
+              storageFileStem: product.miaoshouProductId
             }),
             imageTimeoutMs,
             "单次洗图等待已超过 15 分钟，已停止等待；系统没有自动发起第二次请求。"
