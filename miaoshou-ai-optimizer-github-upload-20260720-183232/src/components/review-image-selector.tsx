@@ -34,7 +34,7 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
   const storageKey = useMemo(() => `miaoshou:selected-images:${productId}`, [productId]);
   const ruleStorageKey = useMemo(() => `miaoshou:selected-image-rule:${productId}`, [productId]);
   const defaultSelected = useMemo(() => (images[0] ? [images[0].id] : []), [images]);
-  const rows = useMemo(() => buildSkuRows(images, variants), [images, variants]);
+  const rows = useMemo(() => buildImageRows(images, variants), [images, variants]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(defaultSelected));
   const [ruleConfig, setRuleConfig] = useState<StoredImageRuleConfig | null>(null);
   const [ruleProfileId, setRuleProfileId] = useState<string>("");
@@ -79,12 +79,8 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
   };
 
   const selectFirst = () => setSelected(new Set(defaultSelected));
-  const selectFirstPerSku = () => {
-    const skuRows = rows.filter((row) => row.id !== "product-common-images");
-    const sourceRows = skuRows.length > 0 ? skuRows : rows;
-    const firstImageIds = sourceRows
-      .map((row) => row.images[0]?.id)
-      .filter((id): id is string => Boolean(id));
+  const selectFirstPerGroup = () => {
+    const firstImageIds = rows.map((row) => row.images[0]?.id).filter((id): id is string => Boolean(id));
     setSelected(new Set(firstImageIds.length > 0 ? firstImageIds : defaultSelected));
   };
   const selectAll = () => setSelected(new Set(images.map((image) => image.id)));
@@ -109,8 +105,8 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
         <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" type="button" onClick={selectFirst}>
           只选第一张
         </button>
-        <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" type="button" onClick={selectFirstPerSku}>
-          每个 SKU 第一张
+        <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" type="button" onClick={selectFirstPerGroup}>
+          每个颜色第一张
         </button>
         <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" type="button" onClick={selectAll}>
           全选图片
@@ -118,7 +114,7 @@ export function ReviewImageSelector({ productId, images, variants = [] }: { prod
         </div>
       </div>
       <div className="grid grid-cols-[145px_1fr] bg-slate-50 text-sm font-semibold text-slate-500">
-        <div className="px-3 py-2">SKU选项</div>
+        <div className="px-3 py-2">图片分组</div>
         <div className="px-3 py-2">图片</div>
       </div>
       <div className="max-h-[560px] divide-y divide-line overflow-y-auto">
@@ -192,41 +188,59 @@ function ImageCard({ image, checked, onToggle }: { image: ReviewImage; checked: 
   );
 }
 
-function buildSkuRows(images: ReviewImage[], variants: ReviewVariant[]): SkuImageRow[] {
-  const usedImageIds = new Set<string>();
-  const imageByUrl = new Map(images.map((image) => [normalizeUrl(image.originalUrl), image]));
-  const rows: SkuImageRow[] = variants.map((variant, index) => {
-    const variantUrls = [...(variant.imageUrls ?? []), variant.imageUrl].filter(Boolean) as string[];
-    const rowImages = uniqueImages(variantUrls.map((url) => imageByUrl.get(normalizeUrl(url))).filter((image): image is ReviewImage => Boolean(image)));
-    rowImages.forEach((image) => usedImageIds.add(image.id));
-    return {
-      id: variant.id,
-      label: variant.sku || `SKU-${index + 1}`,
-      subLabel: [variant.name, variant.color, variant.size].filter(Boolean).join(" / ") || `第 ${index + 1} 个 SKU`,
-      images: rowImages
-    };
+function buildImageRows(images: ReviewImage[], variants: ReviewVariant[]): SkuImageRow[] {
+  const unique = uniqueImages(images);
+  const imageByUrl = new Map(unique.map((image) => [normalizeUrl(image.originalUrl), image]));
+  const groups = new Map<string, { labels: Set<string>; variantCount: number; images: ReviewImage[] }>();
+
+  variants.forEach((variant) => {
+    const urls = [...new Set([...(variant.imageUrls ?? []), variant.imageUrl].filter((url): url is string => Boolean(url)).map(normalizeUrl))];
+    const groupImages = uniqueImages(urls.map((url) => imageByUrl.get(url)).filter((image): image is ReviewImage => Boolean(image)));
+    if (groupImages.length === 0) return;
+    const signature = groupImages.map((image) => image.id).sort().join("|");
+    const group = groups.get(signature) ?? { labels: new Set<string>(), variantCount: 0, images: groupImages };
+    group.labels.add(variant.color || colorFromSku(variant.sku) || variant.name || "SKU 图片");
+    group.variantCount += 1;
+    groups.set(signature, group);
   });
-  const unassigned = images.filter((image) => !usedImageIds.has(image.id));
-  if (unassigned.length > 0 || rows.length === 0) {
-    rows.unshift({
+
+  const rows: SkuImageRow[] = [];
+  const usedImageIds = new Set<string>();
+  [...groups.values()].forEach((group, index) => {
+    group.images.forEach((image) => usedImageIds.add(image.id));
+    rows.push({
+      id: `sku-image-group-${index + 1}`,
+      label: [...group.labels].join(" / "),
+      subLabel: `${group.images.length} 张图片 · 已合并 ${group.variantCount} 个尺码规格`,
+      images: group.images
+    });
+  });
+  const commonImages = unique.filter((image) => !usedImageIds.has(image.id));
+  if (commonImages.length > 0) {
+    rows.push({
       id: "product-common-images",
       label: "商品通用图",
       subLabel: "主图 / 轮播图 / 详情图",
-      images: unassigned.length > 0 ? unassigned : images
+      images: commonImages
     });
   }
   return rows;
 }
 
-function normalizeUrl(url?: string | null) {
-  return (url ?? "").trim().replace(/^http:\/\//, "https://").replace(/\?.*$/, "");
+function colorFromSku(sku: string) {
+  return sku.split(";").map((part) => part.trim()).filter(Boolean)[0] ?? "";
+}
+
+function normalizeUrl(url: string) {
+  return url.trim().replace(/^http:\/\//, "https://").replace(/\?.*$/, "");
 }
 
 function uniqueImages(images: ReviewImage[]) {
   const seen = new Set<string>();
   return images.filter((image) => {
-    if (seen.has(image.id)) return false;
-    seen.add(image.id);
+    const key = image.originalUrl.trim().replace(/^http:\/\//, "https://").replace(/\?.*$/, "");
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
