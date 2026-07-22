@@ -32,7 +32,7 @@ type ProductRow = {
   updatedAt: string;
 };
 
-type BatchAction = "title" | "image" | "save";
+type BatchAction = "title" | "image" | "save" | "saveShein";
 
 export function ProductsTable({ products }: { products: ProductRow[] }) {
   const router = useRouter();
@@ -56,7 +56,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
         setRuleConfig(data.config);
         setBatchRuleProfileId(window.localStorage.getItem("miaoshou:batch-image-rule") || data.config.activeProfileId);
         const savedConcurrency = Number(window.localStorage.getItem("miaoshou:batch-image-concurrency") || 1);
-        setBatchConcurrency(Math.min(Math.max(savedConcurrency || 1, 1), 3));
+        setBatchConcurrency(Math.min(Math.max(savedConcurrency || 1, 1), 50));
       })
       .catch(() => null);
   }, []);
@@ -67,7 +67,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
   };
 
   const changeBatchConcurrency = (value: number) => {
-    const next = Math.min(Math.max(Number(value) || 1, 1), 3);
+    const next = Math.min(Math.max(Number(value) || 1, 1), 50);
     setBatchConcurrency(next);
     window.localStorage.setItem("miaoshou:batch-image-concurrency", String(next));
   };
@@ -106,7 +106,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
   const runBatch = async (action: BatchAction) => {
     if (selectedProducts.length === 0 || working) return;
     setWorking(action);
-    const actionText = action === "title" ? "重新生成标题" : action === "image" ? "重新生成图片" : "保存到公共采集箱";
+    const actionText = action === "title" ? "重新生成标题" : action === "image" ? "重新生成图片" : action === "saveShein" ? "保存到 SHEIN" : "保存到公共采集箱";
     const selectedRule = ruleConfig?.profiles.find((profile) => profile.id === batchRuleProfileId);
     const concurrency = action === "image" ? batchConcurrency : 1;
     let success = 0;
@@ -123,11 +123,11 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
           const imageRequestStartedAt = Date.now();
           const requestedImageIds = action === "image" && selectedSkuImages[product.id]?.size ? [...selectedSkuImages[product.id]] : [];
           const request = () =>
-            action === "save"
+            action === "save" || action === "saveShein"
               ? fetch("/api/miaoshou/sync", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ productId: product.id, saveMode: "LOCAL_ONLY" })
+                  body: JSON.stringify({ productId: product.id, saveMode: action === "saveShein" ? "PLATFORM_COLLECTION_BOX" : "LOCAL_ONLY" })
                 })
               : fetch(`/api/review/${product.id}/regenerate`, {
                   method: "POST",
@@ -200,11 +200,16 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
               </label>
             ) : null}
             <label className="flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm">
-              并发（建议 1）
+              并发（最高 50）
               <select className="bg-white" value={batchConcurrency} onChange={(event) => changeBatchConcurrency(Number(event.target.value))}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
                 <option value={3}>3</option>
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={30}>30</option>
+                <option value={50}>50</option>
               </select>
             </label>
             <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" onClick={toggleAll}>
@@ -230,6 +235,13 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
               onClick={() => runBatch("save")}
             >
               {working === "save" ? "保存中" : "批量保存到公共采集箱"}
+            </button>
+            <button
+              className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              disabled={selected.size === 0 || working !== null}
+              onClick={() => runBatch("saveShein")}
+            >
+              {working === "saveShein" ? "保存中" : "批量保存到 SHEIN"}
             </button>
           </div>
           {message ? <div className="w-full text-right text-xs text-slate-600">{message}</div> : null}

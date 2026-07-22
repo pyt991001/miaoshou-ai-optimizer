@@ -73,6 +73,7 @@ export function ReviewActions({ productId, titleOptimizationId }: { productId: s
         </button>
         <button className="rounded-md border border-line bg-white px-3 py-2 text-sm">恢复原标题</button>
         <button className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white disabled:opacity-60" disabled={working !== null} onClick={() => sync("LOCAL_ONLY")}>保存到公共采集箱</button>
+        <button className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-60" disabled={working !== null} onClick={() => sync("PLATFORM_COLLECTION_BOX")}>保存到 SHEIN</button>
       </div>
       {message ? <div className="text-right text-xs text-slate-600">{message}</div> : null}
     </div>

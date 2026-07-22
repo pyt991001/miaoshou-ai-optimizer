@@ -48,7 +48,7 @@ export async function saveProductToMiaoshou(productId: string, saveMode: SaveMod
   );
   const boxResult =
     saveMode === SaveMode.PLATFORM_COLLECTION_BOX
-      ? await client.saveToPlatformCollectionBox(product.miaoshouProductId, process.env.MIAOSHOU_TARGET_BOX ?? process.env.MIAOSHOU_TARGET_PLATFORM ?? "shein", crypto.randomUUID())
+      ? await updateThenClaimShein(client, product.miaoshouProductId, acceptedTitle, imageUrls)
       : saveMode === SaveMode.PUBLIC_COLLECTION_BOX
         ? await client.saveToPublicCollectionBox(product.miaoshouProductId, crypto.randomUUID())
         : await client.updateProduct({
@@ -82,7 +82,7 @@ export async function saveLocalProductToMiaoshou(productId: string, saveMode: Sa
   const imageUrls = uniqueUrls(product.images.map((image) => image.optimizedUrl ?? image.originalUrl));
   const boxResult =
     saveMode === SaveMode.PLATFORM_COLLECTION_BOX
-      ? await client.saveToPlatformCollectionBox(product.miaoshouProductId, process.env.MIAOSHOU_TARGET_BOX ?? process.env.MIAOSHOU_TARGET_PLATFORM ?? "shein", crypto.randomUUID())
+      ? await updateThenClaimShein(client, product.miaoshouProductId, product.optimizedTitle ?? product.originalTitle, imageUrls)
       : saveMode === SaveMode.PUBLIC_COLLECTION_BOX
         ? await client.saveToPublicCollectionBox(product.miaoshouProductId, crypto.randomUUID())
         : await client.updateProduct({
@@ -104,4 +104,16 @@ export async function saveLocalProductToMiaoshou(productId: string, saveMode: Sa
 
 function uniqueUrls(urls: string[]) {
   return [...new Set(urls)];
+}
+
+async function updateThenClaimShein(
+  client: ReturnType<typeof createMiaoshouClient>,
+  productId: string,
+  title: string,
+  imageUrls: string[]
+) {
+  // 必须先把标题和洗图结果回写公共采集箱，再认领到 SHEIN；
+  // 只调用认领接口会把妙手中的旧图片带到 SHEIN 采集箱。
+  await client.updateProduct({ productId, title, imageUrls, idempotencyKey: crypto.randomUUID() });
+  return client.saveToPlatformCollectionBox(productId, "shein", crypto.randomUUID());
 }
