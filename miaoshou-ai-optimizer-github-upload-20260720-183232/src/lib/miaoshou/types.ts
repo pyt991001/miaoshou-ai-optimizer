@@ -78,6 +78,7 @@ export interface MiaoshouTaskStatus {
 }
 
 export interface MiaoshouClient {
+  listShops(platform: string, site?: string): Promise<Array<Record<string, unknown>>>;
   listProducts(input: MiaoshouListProductsInput): Promise<MiaoshouListProductsResult>;
   getProduct(productId: string): Promise<MiaoshouProduct>;
   updateProductTitle(productId: string, title: string, idempotencyKey: string): Promise<MiaoshouSaveResult>;
