@@ -137,11 +137,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                   })
                 });
 
-          let response = await request();
-          if (action === "image" && !response.ok && [408, 429, 500, 502, 503, 504].includes(response.status)) {
-            await delay(2_500);
-            response = await request();
-          }
+          const response = await request();
 
           if (!response.ok) {
             throw new Error(await readError(response, `${actionText}失败`));
@@ -367,8 +363,4 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (i
       }
     })
   );
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
