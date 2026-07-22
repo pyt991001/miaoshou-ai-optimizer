@@ -76,6 +76,17 @@ export class RealMiaoshouClient implements MiaoshouClient {
     return inferSourcePlatform(this.config.targetPlatform, this.config.targetBox);
   }
 
+  async listShops(platform: string, site?: string): Promise<Array<Record<string, unknown>>> {
+    const raw = await this.request<{ shopList?: unknown[] }>("/open/v1/product/shop/shop/get_shop_list", {
+      platform,
+      ...(site ? { site } : {}),
+      pageNo: 1,
+      pageSize: 100
+    });
+    const data = asRecord(raw.data);
+    return Array.isArray(data.shopList) ? data.shopList.map((shop) => asRecord(shop)) : [];
+  }
+
   private async request<T>(apiPath: string, body: unknown = {}, idempotencyKey?: string): Promise<ApiEnvelope<T>> {
     if (!this.config.baseUrl || !this.config.appKey || !this.config.appSecret) {
       throw new MiaoshouApiError("请先配置 MIAOSHOU_API_BASE_URL、MIAOSHOU_APP_KEY、MIAOSHOU_APP_SECRET", "MISSING_CONFIG", false);
