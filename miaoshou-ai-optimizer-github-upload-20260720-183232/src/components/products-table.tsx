@@ -270,8 +270,9 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                 <div className="min-w-[170px]">
                   <div className="flex items-center gap-2 whitespace-nowrap">
                     <span className="text-sm font-semibold text-slate-700">SKU {product.skuCount}</span>
+                    <span className="text-[11px] text-slate-500">颜色 {(product.skuList ?? []).length}</span>
                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                      已洗 {(product.skuList ?? []).filter((sku) => sku.optimizedImageUrl).length}/{product.skuCount}
+                      已洗 {(product.skuList ?? []).filter((sku) => sku.optimizedImageUrl).length}/{(product.skuList ?? []).length}
                     </span>
                   </div>
                   {product.skuCount > 0 ? (
