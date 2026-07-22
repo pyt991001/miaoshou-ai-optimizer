@@ -23,6 +23,8 @@ type ProductRow = {
     color: string | null;
     size: string | null;
     imageUrl: string | null;
+    imageId: string | null;
+    originalImageUrl: string | null;
     optimizedImageUrl: string | null;
     optimizedImageCount: number;
   }>;
@@ -40,6 +42,8 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
   const [ruleConfig, setRuleConfig] = useState<StoredImageRuleConfig | null>(null);
   const [batchRuleProfileId, setBatchRuleProfileId] = useState<string>("");
   const [batchConcurrency, setBatchConcurrency] = useState(3);
+  const [selectedSkuImages, setSelectedSkuImages] = useState<Record<string, Set<string>>>({});
+  const [hoverPreview, setHoverPreview] = useState<{ sku: string; originalUrl: string; optimizedUrl: string | null; top: number; left: number } | null>(null);
 
   const selectedProducts = useMemo(() => products.filter((product) => selected.has(product.id)), [products, selected]);
   const allSelected = products.length > 0 && selected.size === products.length;
@@ -83,6 +87,16 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
     });
   };
 
+  const toggleSkuImage = (productId: string, imageId: string) => {
+    setSelectedSkuImages((current) => {
+      const productImages = new Set(current[productId] ?? []);
+      if (productImages.has(imageId)) productImages.delete(imageId);
+      else productImages.add(imageId);
+      return { ...current, [productId]: productImages };
+    });
+    setSelected((current) => new Set(current).add(productId));
+  };
+
   const readError = async (response: Response, fallback: string) => {
     const data = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
     return data.message ?? data.error ?? fallback;
@@ -114,7 +128,11 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
               : await fetch(`/api/review/${product.id}/regenerate`, {
                   method: "POST",
                   headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ type: action, ruleProfileId: action === "image" ? batchRuleProfileId : undefined })
+                  body: JSON.stringify({
+                    type: action,
+                    ruleProfileId: action === "image" ? batchRuleProfileId : undefined,
+                    imageIds: action === "image" && selectedSkuImages[product.id]?.size ? [...selectedSkuImages[product.id]] : undefined
+                  })
                 });
 
           if (!response.ok) {
@@ -257,28 +275,38 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                     </span>
                   </div>
                   {product.skuCount > 0 ? (
-                    <div className="mt-2 flex max-w-[260px] flex-wrap gap-1.5">
-                      {(product.skuList ?? []).map((sku) =>
-                        sku.optimizedImageUrl ? (
-                          <img
-                            key={sku.sku}
-                            src={sku.optimizedImageUrl}
-                            alt={sku.sku}
-                            title={`${sku.sku} · 已洗 ${sku.optimizedImageCount} 张`}
-                            referrerPolicy="no-referrer"
-                            className="size-9 rounded-md border border-emerald-200 bg-white object-cover shadow-sm"
-                          />
-                        ) : (
-                          <div
-                            key={sku.sku}
-                            title={`${sku.sku} · 尚未洗图`}
-                            className="grid size-9 place-items-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-[10px] text-slate-400"
-                          >
-                            待
-                          </div>
-                        )
-                      )}
+                    <div className="mt-2 max-h-[112px] max-w-[260px] overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 p-1.5">
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {(product.skuList ?? []).map((sku, skuIndex) => {
+                          const isSelected = Boolean(sku.imageId && selectedSkuImages[product.id]?.has(sku.imageId));
+                          const hasWashed = Boolean(sku.optimizedImageUrl);
+                          const imageUrl = sku.originalImageUrl ?? sku.imageUrl;
+                          return (
+                            <button
+                              key={`${sku.sku}-${skuIndex}`}
+                              type="button"
+                              disabled={!sku.imageId || !imageUrl}
+                              aria-label={`${isSelected ? "取消选择" : "选择"} SKU ${sku.sku}`}
+                              title={sku.imageId ? `点击选择这张图洗图 · ${sku.sku}` : `${sku.sku} · 没有可洗原图`}
+                              onClick={() => sku.imageId && toggleSkuImage(product.id, sku.imageId)}
+                              onMouseEnter={(event) => {
+                                if (!imageUrl) return;
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                setHoverPreview({ sku: sku.sku, originalUrl: imageUrl, optimizedUrl: sku.optimizedImageUrl, top: Math.min(rect.bottom + 8, window.innerHeight - 300), left: Math.min(rect.left, window.innerWidth - 520) });
+                              }}
+                              onMouseLeave={() => setHoverPreview(null)}
+                              className={`relative size-10 overflow-hidden rounded-md border-2 bg-white transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed ${isSelected ? "border-blue-500 ring-2 ring-blue-200" : hasWashed ? "border-emerald-400" : "border-amber-400"}`}
+                            >
+                              {imageUrl ? <img src={imageUrl} alt={sku.sku} referrerPolicy="no-referrer" className="size-full object-cover" /> : <span className="grid size-full place-items-center text-[9px] text-slate-400">无图</span>}
+                              <span className={`absolute right-0 top-0 grid size-3.5 place-items-center rounded-bl text-[9px] font-bold text-white ${isSelected ? "bg-blue-500" : hasWashed ? "bg-emerald-500" : "bg-amber-500"}`}>
+                                {isSelected ? "✓" : hasWashed ? "洗" : "原"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
+                    <div className="mt-1 text-[10px] text-slate-500"><span className="text-emerald-600">绿框已洗</span> · <span className="text-amber-600">黄框未洗</span> · <span className="text-blue-600">蓝框已选</span></div>
                   ) : (
                     <div className="mt-1 text-[11px] text-slate-400">无 SKU</div>
                   )}
@@ -290,8 +318,21 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
           ))}
         </tbody>
       </table>
+      {hoverPreview ? (
+        <div className="pointer-events-none fixed z-[100] w-[500px] rounded-xl border border-slate-200 bg-white p-3 shadow-2xl" style={{ top: hoverPreview.top, left: Math.max(12, hoverPreview.left) }}>
+          <div className="mb-2 truncate text-xs font-semibold text-slate-700">SKU {hoverPreview.sku}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <PreviewImage label="未洗原图" url={hoverPreview.originalUrl} borderClass="border-amber-400" />
+            {hoverPreview.optimizedUrl ? <PreviewImage label="洗后效果" url={hoverPreview.optimizedUrl} borderClass="border-emerald-400" /> : <div><div className="mb-1 text-center text-xs font-medium text-slate-600">洗后效果</div><div className="grid aspect-square place-items-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 text-sm text-slate-400">尚未洗图</div></div>}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function PreviewImage({ label, url, borderClass }: { label: string; url: string; borderClass: string }) {
+  return <div><div className="mb-1 text-center text-xs font-medium text-slate-600">{label}</div><img src={url} alt={label} referrerPolicy="no-referrer" className={`aspect-square w-full rounded-lg border-2 ${borderClass} bg-white object-contain`} /></div>;
 }
 
 async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<void>) {
