@@ -120,6 +120,8 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
       );
       await runWithConcurrency(selectedProducts, concurrency, async (product) => {
         try {
+          const imageRequestStartedAt = Date.now();
+          const requestedImageIds = action === "image" && selectedSkuImages[product.id]?.size ? [...selectedSkuImages[product.id]] : [];
           const request = () =>
             action === "save"
               ? fetch("/api/miaoshou/sync", {
@@ -133,14 +135,24 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                   body: JSON.stringify({
                     type: action,
                     ruleProfileId: action === "image" ? batchRuleProfileId : undefined,
-                    imageIds: action === "image" && selectedSkuImages[product.id]?.size ? [...selectedSkuImages[product.id]] : undefined
+                    imageIds: requestedImageIds.length ? requestedImageIds : undefined
                   })
                 });
 
           const response = await request();
 
           if (!response.ok) {
-            throw new Error(await readError(response, `${actionText}失败`));
+            const responseError = await readError(response, `${actionText}失败`);
+            if (action === "image" && [408, 500, 502, 503, 504].includes(response.status)) {
+              setMessage(`${product.miaoshouProductId}：连接超时，图片可能仍在生成，正在等待云端回传（不会重新提交）…`);
+              const returnedCount = await waitForReturnedImages(product.id, requestedImageIds, imageRequestStartedAt);
+              if (returnedCount > 0) {
+                notices.push(`${product.miaoshouProductId}：接口曾超时，但已确认 ${returnedCount} 张图片成功回传云端`);
+                success += 1;
+                return;
+              }
+            }
+            throw new Error(responseError);
           }
           if (action === "image") {
             const result = (await response.json().catch(() => ({}))) as { failed?: number; message?: string };
@@ -363,4 +375,35 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (i
       }
     })
   );
+}
+
+async function waitForReturnedImages(productId: string, requestedImageIds: string[], startedAt: number): Promise<number> {
+  const expectedCount = Math.max(requestedImageIds.length, 1);
+  const requested = new Set(requestedImageIds);
+  let bestCount = 0;
+
+  // Railway may close a long HTTP response while the server and image provider
+  // continue working. Poll the database instead of submitting the image again.
+  for (let attempt = 0; attempt < 36; attempt += 1) {
+    await delay(10_000);
+    const response = await fetch(`/api/miaoshou/products/${productId}`, { cache: "no-store" }).catch(() => null);
+    if (!response?.ok) continue;
+    const product = (await response.json().catch(() => null)) as
+      | { images?: Array<{ id: string; optimizations?: Array<{ createdAt?: string; optimizedUrl?: string | null }> }> }
+      | null;
+    const returned = (product?.images ?? []).filter((image) => {
+      if (requested.size > 0 && !requested.has(image.id)) return false;
+      return (image.optimizations ?? []).some((optimization) => {
+        const createdAt = Date.parse(optimization.createdAt ?? "");
+        return Boolean(optimization.optimizedUrl) && Number.isFinite(createdAt) && createdAt >= startedAt - 5_000;
+      });
+    }).length;
+    bestCount = Math.max(bestCount, returned);
+    if (returned >= expectedCount) return returned;
+  }
+  return bestCount;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
