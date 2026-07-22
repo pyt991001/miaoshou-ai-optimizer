@@ -46,7 +46,8 @@ export default async function ProductsPage() {
             name: variant.name,
             color: variant.color,
             size: variant.size,
-            imageUrl: variant.imageUrl
+            imageUrl: variant.imageUrl,
+            ...getSkuPreview(variant, product.images)
           })),
           processingStatus: product.processingStatus,
           updatedAt: product.updatedAt.toLocaleString()
@@ -68,7 +69,8 @@ export default async function ProductsPage() {
       name: variant.name,
       color: variant.color,
       size: variant.size,
-      imageUrl: variant.imageUrl
+      imageUrl: variant.imageUrl,
+      ...getSkuPreview(variant, product.images)
     })),
     processingStatus: product.processingStatus,
     updatedAt: product.updatedAt.toLocaleString()
@@ -106,4 +108,45 @@ function getOptimizedImageUrl(
   if (!image) return null;
   if ("optimizations" in image) return image.optimizations?.[0]?.optimizedUrl ?? null;
   return image.optimizedUrl ?? null;
+}
+
+function getSkuPreview(
+  variant: { imageUrl?: string | null; rawData: unknown },
+  images: Array<{
+    originalUrl: string;
+    optimizedUrl?: string | null;
+    optimizations?: Array<{ optimizedUrl: string | null }>;
+  }>
+) {
+  const skuUrls = uniqueStrings([variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]);
+  const skuUrlKeys = new Set(skuUrls.map(normalizeUrl));
+  const optimizedUrls = uniqueStrings(
+    images
+      .filter((image) => skuUrlKeys.has(normalizeUrl(image.originalUrl)))
+      .map((image) => getOptimizedImageUrl(image))
+  );
+  return {
+    optimizedImageUrl: optimizedUrls[0] ?? null,
+    optimizedImageCount: optimizedUrls.length
+  };
+}
+
+function imageUrlsFromUnknown(value: unknown, depth = 0): string[] {
+  if (depth > 7 || value == null) return [];
+  if (typeof value === "string") return isImageUrl(value) ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap((item) => imageUrlsFromUnknown(item, depth + 1));
+  if (typeof value !== "object") return [];
+  return Object.values(value as Record<string, unknown>).flatMap((child) => imageUrlsFromUnknown(child, depth + 1));
+}
+
+function isImageUrl(value: string) {
+  return /^(https?:)?\/\//i.test(value) && (/\.(avif|gif|jpe?g|png|webp)(\?.*)?$/i.test(value) || /(img|image|pic|photo)/i.test(value));
+}
+
+function normalizeUrl(url: string) {
+  return url.trim().replace(/^http:\/\//i, "https://").replace(/\?.*$/, "");
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
