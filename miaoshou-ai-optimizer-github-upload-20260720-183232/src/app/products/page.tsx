@@ -113,6 +113,7 @@ function getOptimizedImageUrl(
 function getSkuPreview(
   variant: { imageUrl?: string | null; rawData: unknown },
   images: Array<{
+    id: string;
     originalUrl: string;
     optimizedUrl?: string | null;
     optimizations?: Array<{ optimizedUrl: string | null }>;
@@ -120,12 +121,13 @@ function getSkuPreview(
 ) {
   const skuUrls = uniqueStrings([variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]);
   const skuUrlKeys = new Set(skuUrls.map(normalizeUrl));
+  const matchedImages = images.filter((image) => skuUrlKeys.has(normalizeUrl(image.originalUrl)));
   const optimizedUrls = uniqueStrings(
-    images
-      .filter((image) => skuUrlKeys.has(normalizeUrl(image.originalUrl)))
-      .map((image) => getOptimizedImageUrl(image))
+    matchedImages.map((image) => getOptimizedImageUrl(image))
   );
   return {
+    imageId: matchedImages[0]?.id ?? null,
+    originalImageUrl: matchedImages[0]?.originalUrl ?? skuUrls[0] ?? null,
     optimizedImageUrl: optimizedUrls[0] ?? null,
     optimizedImageCount: optimizedUrls.length
   };
