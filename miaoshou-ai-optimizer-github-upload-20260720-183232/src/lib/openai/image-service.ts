@@ -46,19 +46,24 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
   if (!imageApiKey) {
     buffer = await mockImageEdit(input.originalPath, rules.output_format);
   } else {
-    const client = new OpenAI({ apiKey: imageApiKey, baseURL: imageBaseUrl || undefined });
+    // Disable the SDK's hidden retries. This call already has explicit retry control below;
+    // stacking both layers can multiply one image into many billable requests.
+    const client = new OpenAI({ apiKey: imageApiKey, baseURL: imageBaseUrl || undefined, maxRetries: 0 });
     const modelReferencePath = rules.model_reference_image_url ? await downloadReferenceImage(rules.model_reference_image_url) : null;
     const imageInputPath = modelReferencePath && rules.template === "model_try_on" ? await buildTryOnReferenceSheet(input.originalPath, modelReferencePath) : input.originalPath;
     const imageFile = await imagePathToPngFile(imageInputPath);
 
+    let apiAttempt = 0;
     for (let visualAttempt = 0; visualAttempt < 2; visualAttempt += 1) {
       const attemptPrompt =
         visualAttempt === 0
           ? prompt
           : `${prompt}\nIMPORTANT RETRY: The previous output was visually unchanged. Apply the requested transformation clearly and visibly while preserving the garment design.`;
       const response = await retryWithBackoff(
-        () =>
-          client.images.edit({
+        () => {
+          apiAttempt += 1;
+          console.info("[image-generation] API attempt", { visualAttempt: visualAttempt + 1, apiAttempt });
+          return client.images.edit({
             model: env.OPENAI_IMAGE_MODEL,
             image: imageFile,
             prompt: attemptPrompt,
@@ -68,9 +73,10 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
             background: rules.background,
             output_format: rules.output_format,
             ...(rules.output_format === "png" ? {} : { output_compression: rules.compression })
-          } as never),
+          } as never);
+        },
         {
-          attempts: 3,
+          attempts: 2,
           isRetryable: (error) => {
             const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) : 0;
             return [408, 409, 429, 500, 502, 503, 504].includes(status);
