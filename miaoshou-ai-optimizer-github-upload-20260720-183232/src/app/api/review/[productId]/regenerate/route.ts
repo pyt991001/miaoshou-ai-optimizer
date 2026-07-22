@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma, ProcessingStatus } from "@prisma/client";
+import crypto from "node:crypto";
+import { Prisma, ProcessingStatus, TaskType } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { getEnv } from "@/lib/config/env";
 import { prepareImageForOpenAI } from "@/lib/openai/image-download";
@@ -56,8 +57,39 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
         const records = [];
         const failures: Array<{ imageId: string; message: string }> = [];
         const imagesToProcess = selectImagesForRegeneration(dbProduct.images, body.imageIds);
+        const trackingJob = await prisma.processingJob.create({
+          data: {
+            userId,
+            name: `洗图 · ${dbProduct.miaoshouProductId}`,
+            status: ProcessingStatus.PROCESSING_IMAGES,
+            totalProducts: imagesToProcess.length,
+            settings: { operation: "image-regeneration", productId: dbProduct.id, imageCount: imagesToProcess.length },
+            tasks: {
+              create: imagesToProcess.map((image) => ({
+                productId: dbProduct.id,
+                type: TaskType.OPTIMIZE_IMAGE,
+                status: ProcessingStatus.PENDING,
+                maxAttempts: 1,
+                idempotencyKey: crypto.randomUUID(),
+                payload: { imageId: image.id, originalUrl: image.originalUrl }
+              }))
+            }
+          },
+          include: { tasks: true }
+        });
+        const taskByImageId = new Map(
+          trackingJob.tasks.map((task) => [String((task.payload as { imageId?: unknown }).imageId ?? ""), task.id])
+        );
+        await prisma.product.update({ where: { id: dbProduct.id }, data: { processingStatus: ProcessingStatus.PROCESSING_IMAGES } });
         for (const image of imagesToProcess) {
+          const trackingTaskId = taskByImageId.get(image.id);
           try {
+            if (trackingTaskId) {
+              await prisma.processingTask.update({
+                where: { id: trackingTaskId },
+                data: { status: ProcessingStatus.PROCESSING_IMAGES, attempts: 1, startedAt: new Date() }
+              });
+            }
             const originalPath = await prepareImageForOpenAI({ imageUrl: image.originalUrl, productId: dbProduct.id, imageId: image.id });
             const result = await withTimeout(
               optimizeProductImage({
@@ -89,12 +121,39 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
                 }
               })
             );
+            if (trackingTaskId) {
+              await prisma.processingTask.update({
+                where: { id: trackingTaskId },
+                data: { status: ProcessingStatus.COMPLETED, completedAt: new Date(), errorMessage: null }
+              });
+            }
           } catch (error) {
             const message = errorMessage(error);
             failures.push({ imageId: image.id, message });
+            if (trackingTaskId) {
+              await prisma.processingTask.update({
+                where: { id: trackingTaskId },
+                data: { status: ProcessingStatus.FAILED, completedAt: new Date(), errorMessage: message }
+              }).catch(() => null);
+            }
             console.error("[image-regenerate] image failed", { productId: dbProduct.id, imageId: image.id, message });
           }
         }
+        const finalStatus = records.length === 0
+          ? ProcessingStatus.FAILED
+          : failures.length > 0
+            ? ProcessingStatus.PARTIALLY_COMPLETED
+            : ProcessingStatus.COMPLETED;
+        await prisma.$transaction([
+          prisma.processingJob.update({
+            where: { id: trackingJob.id },
+            data: { status: finalStatus, completedCount: records.length, failedCount: failures.length }
+          }),
+          prisma.product.update({
+            where: { id: dbProduct.id },
+            data: { processingStatus: records.length > 0 ? ProcessingStatus.WAITING_REVIEW : ProcessingStatus.FAILED }
+          })
+        ]);
         if (records.length === 0) throw new Error(failures[0]?.message ?? "没有可洗的商品图片。");
         return NextResponse.json({
           ok: true,
