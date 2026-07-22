@@ -41,7 +41,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
   const [message, setMessage] = useState<string | null>(null);
   const [ruleConfig, setRuleConfig] = useState<StoredImageRuleConfig | null>(null);
   const [batchRuleProfileId, setBatchRuleProfileId] = useState<string>("");
-  const [batchConcurrency, setBatchConcurrency] = useState(3);
+  const [batchConcurrency, setBatchConcurrency] = useState(1);
   const [selectedSkuImages, setSelectedSkuImages] = useState<Record<string, Set<string>>>({});
   const [hoverPreview, setHoverPreview] = useState<{ sku: string; originalUrl: string; optimizedUrl: string | null; top: number; left: number } | null>(null);
 
@@ -55,7 +55,8 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
         if (!data.config) return;
         setRuleConfig(data.config);
         setBatchRuleProfileId(window.localStorage.getItem("miaoshou:batch-image-rule") || data.config.activeProfileId);
-        setBatchConcurrency(Number(window.localStorage.getItem("miaoshou:batch-image-concurrency") || 3));
+        const savedConcurrency = Number(window.localStorage.getItem("miaoshou:batch-image-concurrency") || 1);
+        setBatchConcurrency(Math.min(Math.max(savedConcurrency || 1, 1), 3));
       })
       .catch(() => null);
   }, []);
@@ -66,7 +67,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
   };
 
   const changeBatchConcurrency = (value: number) => {
-    const next = Math.min(Math.max(Number(value) || 3, 1), 10);
+    const next = Math.min(Math.max(Number(value) || 1, 1), 3);
     setBatchConcurrency(next);
     window.localStorage.setItem("miaoshou:batch-image-concurrency", String(next));
   };
@@ -111,6 +112,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
     let success = 0;
     let completed = 0;
     const failures: string[] = [];
+    const notices: string[] = [];
 
     try {
       setMessage(
@@ -118,14 +120,14 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
       );
       await runWithConcurrency(selectedProducts, concurrency, async (product) => {
         try {
-          const response =
+          const request = () =>
             action === "save"
-              ? await fetch("/api/miaoshou/sync", {
+              ? fetch("/api/miaoshou/sync", {
                   method: "POST",
                   headers: { "content-type": "application/json" },
                   body: JSON.stringify({ productId: product.id, saveMode: "LOCAL_ONLY" })
                 })
-              : await fetch(`/api/review/${product.id}/regenerate`, {
+              : fetch(`/api/review/${product.id}/regenerate`, {
                   method: "POST",
                   headers: { "content-type": "application/json" },
                   body: JSON.stringify({
@@ -135,8 +137,18 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                   })
                 });
 
+          let response = await request();
+          if (action === "image" && !response.ok && [408, 429, 500, 502, 503, 504].includes(response.status)) {
+            await delay(2_500);
+            response = await request();
+          }
+
           if (!response.ok) {
             throw new Error(await readError(response, `${actionText}失败`));
+          }
+          if (action === "image") {
+            const result = (await response.json().catch(() => ({}))) as { failed?: number; message?: string };
+            if ((result.failed ?? 0) > 0 && result.message) notices.push(`${product.miaoshouProductId}：${result.message}`);
           }
           success += 1;
         } catch (error) {
@@ -146,7 +158,13 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
           setMessage(`正在${actionText}：${completed}/${selectedProducts.length}，成功 ${success}，失败 ${failures.length}${action === "image" ? `，并发 ${concurrency}` : ""}`);
         }
       });
-      setMessage(failures.length > 0 ? `${actionText}完成：成功 ${success} 个，失败 ${failures.length} 个。第一个失败：${failures[0]}` : `${actionText}完成：成功 ${success} 个`);
+      setMessage(
+        failures.length > 0
+          ? `${actionText}完成：成功 ${success} 个，失败 ${failures.length} 个。第一个失败：${failures[0]}`
+          : notices.length > 0
+            ? `${actionText}部分完成：${notices[0]}`
+            : `${actionText}完成：成功 ${success} 个`
+      );
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : `${actionText}失败`);
@@ -174,12 +192,11 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
               </label>
             ) : null}
             <label className="flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm">
-              并发
+              并发（建议 1）
               <select className="bg-white" value={batchConcurrency} onChange={(event) => changeBatchConcurrency(Number(event.target.value))}>
                 <option value={1}>1</option>
+                <option value={2}>2</option>
                 <option value={3}>3</option>
-                <option value={5}>5</option>
-                <option value={10}>10</option>
               </select>
             </label>
             <button className="rounded-md border border-line bg-white px-3 py-2 text-sm" onClick={toggleAll}>
@@ -350,4 +367,8 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (i
       }
     })
   );
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
