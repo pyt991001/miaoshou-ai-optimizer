@@ -276,8 +276,8 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                   </div>
                   {product.skuCount > 0 ? (
                     <>
-                    <div className="mt-2 max-h-[112px] max-w-[260px] overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 p-1.5">
-                      <div className="grid grid-cols-5 gap-1.5">
+                    <div className="mt-2 max-h-[190px] w-[320px] overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 p-2">
+                      <div className="grid grid-cols-6 gap-2">
                         {(product.skuList ?? []).map((sku, skuIndex) => {
                           const isSelected = Boolean(sku.imageId && selectedSkuImages[product.id]?.has(sku.imageId));
                           const hasWashed = Boolean(sku.optimizedImageUrl);
