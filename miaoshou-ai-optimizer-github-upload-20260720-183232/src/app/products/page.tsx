@@ -41,14 +41,7 @@ export default async function ProductsPage() {
           targetPlatform: product.targetPlatform,
           imageCount: product.images.length,
           skuCount: product.variants.length,
-          skuList: product.variants.map((variant, variantIndex) => ({
-            sku: variant.sku,
-            name: variant.name,
-            color: variant.color,
-            size: variant.size,
-            imageUrl: variant.imageUrl,
-            ...getSkuPreview(variant, product.images, variantIndex)
-          })),
+          skuList: buildColorImageGroups(product.variants, product.images),
           processingStatus: product.processingStatus,
           updatedAt: product.updatedAt.toLocaleString()
         }))
@@ -64,14 +57,7 @@ export default async function ProductsPage() {
     targetPlatform: product.targetPlatform,
     imageCount: product.images.length,
     skuCount: product.variants.length,
-    skuList: product.variants.map((variant, variantIndex) => ({
-      sku: variant.sku,
-      name: variant.name,
-      color: variant.color,
-      size: variant.size,
-      imageUrl: variant.imageUrl,
-      ...getSkuPreview(variant, product.images, variantIndex)
-    })),
+    skuList: buildColorImageGroups(product.variants, product.images),
     processingStatus: product.processingStatus,
     updatedAt: product.updatedAt.toLocaleString()
   }));
@@ -110,31 +96,59 @@ function getOptimizedImageUrl(
   return image.optimizedUrl ?? null;
 }
 
-function getSkuPreview(
-  variant: { imageUrl?: string | null; rawData: unknown },
+function buildColorImageGroups(
+  variants: Array<{ sku: string; name?: string | null; color?: string | null; size?: string | null; imageUrl?: string | null; rawData: unknown }>,
   images: Array<{
     id: string;
     originalUrl: string;
     type?: string;
     optimizedUrl?: string | null;
     optimizations?: Array<{ optimizedUrl: string | null }>;
-  }>,
-  variantIndex: number
+  }>
 ) {
-  const skuUrls = uniqueStrings([variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]);
-  const skuUrlKeys = new Set(skuUrls.map(normalizeUrl));
-  const explicitlyMatchedImages = images.filter((image) => skuUrlKeys.has(normalizeUrl(image.originalUrl)));
-  const fallbackImage = images[variantIndex % Math.max(images.length, 1)];
-  const matchedImages = explicitlyMatchedImages.length > 0 ? explicitlyMatchedImages : fallbackImage ? [fallbackImage] : [];
-  const optimizedUrls = uniqueStrings(
-    matchedImages.map((image) => getOptimizedImageUrl(image))
-  );
+  const imageByUrl = new Map(images.map((image) => [normalizeUrl(image.originalUrl), image]));
+  const groups = new Map<string, ReturnType<typeof createColorGroup>>();
+  variants.forEach((variant) => {
+    const skuUrls = uniqueStrings([variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]);
+    const matchedImages = uniqueImages(skuUrls.map((url) => imageByUrl.get(normalizeUrl(url))).filter((image): image is (typeof images)[number] => Boolean(image)));
+    if (matchedImages.length === 0) return;
+    const signature = matchedImages.map((image) => image.id).sort().join("|");
+    if (!groups.has(signature)) groups.set(signature, createColorGroup(variant, matchedImages));
+  });
+  return [...groups.values()];
+}
+
+function createColorGroup(
+  variant: { sku: string; name?: string | null; color?: string | null; imageUrl?: string | null },
+  matchedImages: Array<{ id: string; originalUrl: string; optimizedUrl?: string | null; optimizations?: Array<{ optimizedUrl: string | null }> }>
+) {
+  const firstImage = matchedImages[0];
+  const optimizedUrls = uniqueStrings(matchedImages.map((image) => getOptimizedImageUrl(image)));
+  const color = variant.color || colorFromSku(variant.sku) || variant.name || "SKU 图片";
   return {
-    imageId: matchedImages[0]?.id ?? null,
-    originalImageUrl: matchedImages[0]?.originalUrl ?? skuUrls[0] ?? null,
-    optimizedImageUrl: optimizedUrls[0] ?? null,
+    sku: color,
+    name: color,
+    color,
+    size: null,
+    imageUrl: firstImage.originalUrl,
+    imageId: firstImage.id,
+    originalImageUrl: firstImage.originalUrl,
+    optimizedImageUrl: getOptimizedImageUrl(firstImage),
     optimizedImageCount: optimizedUrls.length
   };
+}
+
+function colorFromSku(sku: string) {
+  return sku.split(";").map((part) => part.trim()).filter(Boolean)[0] ?? "";
+}
+
+function uniqueImages<T extends { id: string }>(images: T[]) {
+  const seen = new Set<string>();
+  return images.filter((image) => {
+    if (seen.has(image.id)) return false;
+    seen.add(image.id);
+    return true;
+  });
 }
 
 function imageUrlsFromUnknown(value: unknown, depth = 0): string[] {
