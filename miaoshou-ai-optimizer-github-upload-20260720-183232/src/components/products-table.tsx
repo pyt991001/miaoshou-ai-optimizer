@@ -275,6 +275,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                     </span>
                   </div>
                   {product.skuCount > 0 ? (
+                    <>
                     <div className="mt-2 max-h-[112px] max-w-[260px] overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 p-1.5">
                       <div className="grid grid-cols-5 gap-1.5">
                         {(product.skuList ?? []).map((sku, skuIndex) => {
@@ -307,6 +308,7 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
                       </div>
                     </div>
                     <div className="mt-1 text-[10px] text-slate-500"><span className="text-emerald-600">绿框已洗</span> · <span className="text-amber-600">黄框未洗</span> · <span className="text-blue-600">蓝框已选</span></div>
+                    </>
                   ) : (
                     <div className="mt-1 text-[11px] text-slate-400">无 SKU</div>
                   )}
