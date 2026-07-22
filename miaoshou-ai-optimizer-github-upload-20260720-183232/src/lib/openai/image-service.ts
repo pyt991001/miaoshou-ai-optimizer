@@ -8,7 +8,6 @@ import { getStorageDriver } from "@/lib/files/storage";
 import { readImageRules } from "@/lib/openai/image-rule-config";
 import { buildImagePrompt, defaultRules, type ImageOptimizationRules } from "@/lib/openai/image-rules";
 import { validateOptimizedImage, type ImageValidationResult } from "@/lib/openai/image-validator";
-import { retryWithBackoff } from "@/lib/utils/retry";
 import type { ProductImageType } from "@prisma/client";
 
 export interface ImageOptimizationInput {
@@ -46,59 +45,38 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
   if (!imageApiKey) {
     buffer = await mockImageEdit(input.originalPath, rules.output_format);
   } else {
-    // Disable the SDK's hidden retries. This call already has explicit retry control below;
-    // stacking both layers can multiply one image into many billable requests.
-    const client = new OpenAI({ apiKey: imageApiKey, baseURL: imageBaseUrl || undefined, maxRetries: 0 });
+    // Strict single-request mode: never let the SDK or application submit this
+    // image a second time. Wait up to five minutes for this one request only.
+    const client = new OpenAI({ apiKey: imageApiKey, baseURL: imageBaseUrl || undefined, maxRetries: 0, timeout: 300_000 });
     const modelReferencePath = rules.model_reference_image_url ? await downloadReferenceImage(rules.model_reference_image_url) : null;
     const imageInputPath = modelReferencePath && rules.template === "model_try_on" ? await buildTryOnReferenceSheet(input.originalPath, modelReferencePath) : input.originalPath;
     const imageFile = await imagePathToPngFile(imageInputPath);
 
-    let apiAttempt = 0;
-    for (let visualAttempt = 0; visualAttempt < 2; visualAttempt += 1) {
-      const attemptPrompt =
-        visualAttempt === 0
-          ? prompt
-          : `${prompt}\nIMPORTANT RETRY: The previous output was visually unchanged. Apply the requested transformation clearly and visibly while preserving the garment design.`;
-      const response = await retryWithBackoff(
-        () => {
-          apiAttempt += 1;
-          console.info("[image-generation] API attempt", { visualAttempt: visualAttempt + 1, apiAttempt });
-          return client.images.edit({
-            model: env.OPENAI_IMAGE_MODEL,
-            image: imageFile,
-            prompt: attemptPrompt,
-            size: rules.size,
-            quality: rules.quality,
-            n: rules.number_of_variants,
-            background: rules.background,
-            output_format: rules.output_format,
-            ...(rules.output_format === "png" ? {} : { output_compression: rules.compression })
-          } as never);
-        },
-        {
-          attempts: 2,
-          isRetryable: (error) => {
-            const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) : 0;
-            return [408, 409, 429, 500, 502, 503, 504].includes(status);
-          }
-        }
-      ).catch((error) => {
+    console.info("[image-generation] single API request started", { timeoutMs: 300_000 });
+    const response = await client.images
+      .edit({
+        model: env.OPENAI_IMAGE_MODEL,
+        image: imageFile,
+        prompt,
+        size: rules.size,
+        quality: rules.quality,
+        n: rules.number_of_variants,
+        background: rules.background,
+        output_format: rules.output_format,
+        ...(rules.output_format === "png" ? {} : { output_compression: rules.compression })
+      } as never)
+      .catch((error) => {
         throw normalizeOpenAIImageError(error, env.OPENAI_IMAGE_MODEL);
       });
 
-      requestId = "id" in response ? String(response.id) : undefined;
-      const b64 = response.data?.[0]?.b64_json;
-      if (!b64) throw new Error("GPT Image API returned an empty image result");
-      const candidate = Buffer.from(b64, "base64");
-      const unchanged = await isVisuallyUnchanged(input.originalPath, candidate);
-      if (!unchanged) {
-        buffer = candidate;
-        break;
-      }
-    }
+    requestId = "id" in response ? String(response.id) : undefined;
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) throw new Error("GPT Image API returned an empty image result");
+    buffer = Buffer.from(b64, "base64");
+    console.info("[image-generation] single API request completed", { requestId, processingMs: Date.now() - started });
   }
 
-  if (!buffer) throw new Error("图片 AI 连续两次返回与原图几乎相同的结果，本次未标记为已洗，请重试或更换洗图规则。");
+  if (!buffer) throw new Error("图片 AI 单次请求没有返回图片；系统未自动重试。");
 
   const validation = await validateOptimizedImage({
     originalPath: input.originalPath,
@@ -120,19 +98,6 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
     validation,
     costUsd: 0
   };
-}
-
-async function isVisuallyUnchanged(originalPath: string, optimizedBuffer: Buffer): Promise<boolean> {
-  const [originalPixels, optimizedPixels] = await Promise.all([
-    sharp(originalPath).resize(64, 64, { fit: "fill" }).removeAlpha().raw().toBuffer(),
-    sharp(optimizedBuffer).resize(64, 64, { fit: "fill" }).removeAlpha().raw().toBuffer()
-  ]);
-  if (originalPixels.length !== optimizedPixels.length || originalPixels.length === 0) return false;
-  let totalDifference = 0;
-  for (let index = 0; index < originalPixels.length; index += 1) {
-    totalDifference += Math.abs(originalPixels[index] - optimizedPixels[index]);
-  }
-  return totalDifference / originalPixels.length / 255 < 0.012;
 }
 
 async function mockImageEdit(filePath: string, format: "png" | "jpeg"): Promise<Buffer> {
