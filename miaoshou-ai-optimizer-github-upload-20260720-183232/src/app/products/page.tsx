@@ -41,13 +41,13 @@ export default async function ProductsPage() {
           targetPlatform: product.targetPlatform,
           imageCount: product.images.length,
           skuCount: product.variants.length,
-          skuList: product.variants.map((variant) => ({
+          skuList: product.variants.map((variant, variantIndex) => ({
             sku: variant.sku,
             name: variant.name,
             color: variant.color,
             size: variant.size,
             imageUrl: variant.imageUrl,
-            ...getSkuPreview(variant, product.images)
+            ...getSkuPreview(variant, product.images, variantIndex)
           })),
           processingStatus: product.processingStatus,
           updatedAt: product.updatedAt.toLocaleString()
@@ -64,13 +64,13 @@ export default async function ProductsPage() {
     targetPlatform: product.targetPlatform,
     imageCount: product.images.length,
     skuCount: product.variants.length,
-    skuList: product.variants.map((variant) => ({
+    skuList: product.variants.map((variant, variantIndex) => ({
       sku: variant.sku,
       name: variant.name,
       color: variant.color,
       size: variant.size,
       imageUrl: variant.imageUrl,
-      ...getSkuPreview(variant, product.images)
+      ...getSkuPreview(variant, product.images, variantIndex)
     })),
     processingStatus: product.processingStatus,
     updatedAt: product.updatedAt.toLocaleString()
@@ -115,13 +115,17 @@ function getSkuPreview(
   images: Array<{
     id: string;
     originalUrl: string;
+    type?: string;
     optimizedUrl?: string | null;
     optimizations?: Array<{ optimizedUrl: string | null }>;
-  }>
+  }>,
+  variantIndex: number
 ) {
   const skuUrls = uniqueStrings([variant.imageUrl, ...imageUrlsFromUnknown(variant.rawData)]);
   const skuUrlKeys = new Set(skuUrls.map(normalizeUrl));
-  const matchedImages = images.filter((image) => skuUrlKeys.has(normalizeUrl(image.originalUrl)));
+  const explicitlyMatchedImages = images.filter((image) => skuUrlKeys.has(normalizeUrl(image.originalUrl)));
+  const fallbackImage = images[variantIndex % Math.max(images.length, 1)];
+  const matchedImages = explicitlyMatchedImages.length > 0 ? explicitlyMatchedImages : fallbackImage ? [fallbackImage] : [];
   const optimizedUrls = uniqueStrings(
     matchedImages.map((image) => getOptimizedImageUrl(image))
   );
