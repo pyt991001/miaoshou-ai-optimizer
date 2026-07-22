@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import OpenAI, { toFile } from "openai";
 import sharp from "sharp";
 import { getEnv } from "@/lib/config/env";
@@ -36,7 +37,7 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
   const rules = { ...defaultRules(input.imageType), ...storedRules, ...input.rules, image_type: input.imageType };
   const prompt = buildImagePrompt({ title: input.title, category: input.category, imageType: input.imageType, rules });
   const started = Date.now();
-  let buffer: Buffer;
+  let buffer: Buffer | undefined;
   let requestId: string | undefined;
 
   const imageApiKey = env.OPENAI_IMAGE_API_KEY || env.OPENAI_API_KEY;
@@ -50,36 +51,48 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
     const imageInputPath = modelReferencePath && rules.template === "model_try_on" ? await buildTryOnReferenceSheet(input.originalPath, modelReferencePath) : input.originalPath;
     const imageFile = await imagePathToPngFile(imageInputPath);
 
-    const editParams = {
-      model: env.OPENAI_IMAGE_MODEL,
-      image: imageFile,
-      prompt,
-      size: rules.size,
-      quality: rules.quality,
-      n: rules.number_of_variants,
-      background: rules.background,
-      output_format: rules.output_format,
-      ...(rules.output_format === "png" ? {} : { output_compression: rules.compression })
-    };
-
-    const response = await retryWithBackoff(
-      () => client.images.edit(editParams as never),
-      {
-        attempts: 3,
-        isRetryable: (error) => {
-          const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) : 0;
-          return [408, 409, 429, 500, 502, 503, 504].includes(status);
+    for (let visualAttempt = 0; visualAttempt < 2; visualAttempt += 1) {
+      const attemptPrompt =
+        visualAttempt === 0
+          ? prompt
+          : `${prompt}\nIMPORTANT RETRY: The previous output was visually unchanged. Apply the requested transformation clearly and visibly while preserving the garment design.`;
+      const response = await retryWithBackoff(
+        () =>
+          client.images.edit({
+            model: env.OPENAI_IMAGE_MODEL,
+            image: imageFile,
+            prompt: attemptPrompt,
+            size: rules.size,
+            quality: rules.quality,
+            n: rules.number_of_variants,
+            background: rules.background,
+            output_format: rules.output_format,
+            ...(rules.output_format === "png" ? {} : { output_compression: rules.compression })
+          } as never),
+        {
+          attempts: 3,
+          isRetryable: (error) => {
+            const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) : 0;
+            return [408, 409, 429, 500, 502, 503, 504].includes(status);
+          }
         }
-      }
-    ).catch((error) => {
-      throw normalizeOpenAIImageError(error, env.OPENAI_IMAGE_MODEL);
-    });
+      ).catch((error) => {
+        throw normalizeOpenAIImageError(error, env.OPENAI_IMAGE_MODEL);
+      });
 
-    requestId = "id" in response ? String(response.id) : undefined;
-    const b64 = response.data?.[0]?.b64_json;
-    if (!b64) throw new Error("GPT Image API returned an empty image result");
-    buffer = Buffer.from(b64, "base64");
+      requestId = "id" in response ? String(response.id) : undefined;
+      const b64 = response.data?.[0]?.b64_json;
+      if (!b64) throw new Error("GPT Image API returned an empty image result");
+      const candidate = Buffer.from(b64, "base64");
+      const unchanged = await isVisuallyUnchanged(input.originalPath, candidate);
+      if (!unchanged) {
+        buffer = candidate;
+        break;
+      }
+    }
   }
+
+  if (!buffer) throw new Error("图片 AI 连续两次返回与原图几乎相同的结果，本次未标记为已洗，请重试或更换洗图规则。");
 
   const validation = await validateOptimizedImage({
     originalPath: input.originalPath,
@@ -88,7 +101,7 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
     title: input.title
   });
 
-  const key = `optimized/${Date.now()}-${path.basename(input.originalPath).replace(/\.[^.]+$/, "")}.${rules.output_format}`;
+  const key = `optimized/${Date.now()}-${randomUUID()}-${path.basename(input.originalPath).replace(/\.[^.]+$/, "")}.${rules.output_format}`;
   const stored = await getStorageDriver().put(buffer, key, `image/${rules.output_format}`);
 
   return {
@@ -101,6 +114,19 @@ export async function optimizeProductImage(input: ImageOptimizationInput): Promi
     validation,
     costUsd: 0
   };
+}
+
+async function isVisuallyUnchanged(originalPath: string, optimizedBuffer: Buffer): Promise<boolean> {
+  const [originalPixels, optimizedPixels] = await Promise.all([
+    sharp(originalPath).resize(64, 64, { fit: "fill" }).removeAlpha().raw().toBuffer(),
+    sharp(optimizedBuffer).resize(64, 64, { fit: "fill" }).removeAlpha().raw().toBuffer()
+  ]);
+  if (originalPixels.length !== optimizedPixels.length || originalPixels.length === 0) return false;
+  let totalDifference = 0;
+  for (let index = 0; index < originalPixels.length; index += 1) {
+    totalDifference += Math.abs(originalPixels[index] - optimizedPixels[index]);
+  }
+  return totalDifference / originalPixels.length / 255 < 0.012;
 }
 
 async function mockImageEdit(filePath: string, format: "png" | "jpeg"): Promise<Buffer> {
