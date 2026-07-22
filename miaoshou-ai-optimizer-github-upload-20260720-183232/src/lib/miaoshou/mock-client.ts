@@ -34,6 +34,9 @@ function products(): MiaoshouProduct[] {
 }
 
 export class MockMiaoshouClient implements MiaoshouClient {
+  async listShops(): Promise<Array<Record<string, unknown>>> {
+    return [];
+  }
   async listProducts(input: MiaoshouListProductsInput): Promise<MiaoshouListProductsResult> {
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? 20;
