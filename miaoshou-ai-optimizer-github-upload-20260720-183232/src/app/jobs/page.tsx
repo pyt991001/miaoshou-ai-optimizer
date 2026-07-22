@@ -60,11 +60,19 @@ type ProgressProduct = {
 
 export default async function JobsPage() {
   const user = await requirePageUser();
-  const dbProducts = await prisma.product.findMany({
-    where: { userId: user.id },
-    orderBy: { updatedAt: "desc" },
-    include: { images: { include: { optimizations: { orderBy: { createdAt: "desc" }, take: 1 } } } }
-  });
+  const [dbProducts, recentJobs] = await Promise.all([
+    prisma.product.findMany({
+      where: { userId: user.id },
+      orderBy: { updatedAt: "desc" },
+      include: { images: { include: { optimizations: { orderBy: { createdAt: "desc" }, take: 1 } } } }
+    }),
+    prisma.processingJob.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      include: { tasks: { orderBy: { createdAt: "asc" } } }
+    })
+  ]);
   const products: ProgressProduct[] = dbProducts.map((product) => ({
     id: product.id,
     miaoshouProductId: product.miaoshouProductId,
@@ -81,6 +89,15 @@ export default async function JobsPage() {
   const waitingReview = rows.filter((row) => row.status === "WAITING_REVIEW");
   const completed = rows.filter((row) => row.status === "COMPLETED");
   const failed = rows.filter((row) => row.status === "FAILED");
+  const imageJobs = recentJobs.filter((job) => {
+    const settings = job.settings as Record<string, unknown>;
+    return settings.operation === "image-regeneration";
+  });
+  const activeImageJobs = imageJobs.filter((job) => runningStatuses.has(job.status) || job.status === "PENDING");
+  const activeImageTaskCount = activeImageJobs.reduce(
+    (sum, job) => sum + job.tasks.filter((task) => task.status === "PENDING" || runningStatuses.has(task.status)).length,
+    0
+  );
   const averageProgress = total ? Math.round(rows.reduce((sum, row) => sum + row.progress, 0) / total) : 0;
 
   return (
@@ -98,7 +115,7 @@ export default async function JobsPage() {
 
       <div className="grid gap-3 md:grid-cols-5">
         <StatCard label="全部商品" value={total} />
-        <StatCard label="正在处理" value={running.length} tone="blue" />
+        <StatCard label="正在处理" value={Math.max(running.length, activeImageTaskCount)} tone="blue" />
         <StatCard label="待人工审核" value={waitingReview.length} tone="amber" />
         <StatCard label="已完成" value={completed.length} tone="green" />
         <StatCard label="失败" value={failed.length} tone="red" />
@@ -119,8 +136,11 @@ export default async function JobsPage() {
           <h2 className="text-lg font-semibold">正在做</h2>
           <span className="text-xs text-slate-500">每 5 秒自动刷新</span>
         </div>
-        {running.length > 0 ? (
+        {activeImageJobs.length > 0 || running.length > 0 ? (
           <div className="grid gap-3">
+            {activeImageJobs.map((job) => (
+              <ImageJobItem key={job.id} job={job} />
+            ))}
             {running.map((row) => (
               <ProgressItem key={row.id} row={row} compact />
             ))}
@@ -145,6 +165,33 @@ export default async function JobsPage() {
           <div className="p-6 text-sm text-slate-600">还没有商品。先去“商品”页面导入妙手公共采集箱商品。</div>
         )}
       </section>
+    </div>
+  );
+}
+
+function ImageJobItem({ job }: { job: Awaited<ReturnType<typeof prisma.processingJob.findMany>>[number] & { tasks: Array<{ status: string; errorMessage: string | null }> } }) {
+  const completed = job.tasks.filter((task) => task.status === "COMPLETED").length;
+  const failed = job.tasks.filter((task) => task.status === "FAILED").length;
+  const processing = job.tasks.filter((task) => runningStatuses.has(task.status)).length;
+  const waiting = job.tasks.filter((task) => task.status === "PENDING").length;
+  const total = job.tasks.length || job.totalProducts;
+  const progress = total ? Math.round(((completed + failed) / total) * 100) : 0;
+  const firstError = job.tasks.find((task) => task.errorMessage)?.errorMessage;
+  return (
+    <div className="rounded-md border border-blue-200 bg-blue-50/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="font-medium text-slate-900">{job.name}</div>
+          <div className="mt-1 text-sm text-slate-600">
+            共 {total} 张 · 正在请求 {processing} · 等待 {waiting} · 成功 {completed} · 失败 {failed}
+          </div>
+          {firstError ? <div className="mt-2 text-xs text-red-700">第一个错误：{firstError}</div> : null}
+        </div>
+        <div className="w-full sm:w-64">
+          <div className="mb-1 flex justify-between text-xs text-slate-500"><span>实时进度</span><span>{progress}%</span></div>
+          <div className="h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-blue-600" style={{ width: `${progress}%` }} /></div>
+        </div>
+      </div>
     </div>
   );
 }
