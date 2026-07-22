@@ -23,6 +23,8 @@ type ProductRow = {
     color: string | null;
     size: string | null;
     imageUrl: string | null;
+    optimizedImageUrl: string | null;
+    optimizedImageCount: number;
   }>;
   processingStatus: string;
   updatedAt: string;
@@ -247,8 +249,40 @@ export function ProductsTable({ products }: { products: ProductRow[] }) {
               <td className="p-3">{product.targetPlatform}</td>
               <td className="p-3">{product.imageCount}</td>
               <td className="p-3">
-                <div className="whitespace-nowrap text-sm font-semibold text-slate-700">{product.skuCount}</div>
-                {(product.skuList ?? []).some((sku) => sku.imageUrl) ? <div className="mt-1 whitespace-nowrap text-[11px] text-emerald-700">SKU 有图</div> : null}
+                <div className="min-w-[170px]">
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="text-sm font-semibold text-slate-700">SKU {product.skuCount}</span>
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                      已洗 {(product.skuList ?? []).filter((sku) => sku.optimizedImageUrl).length}/{product.skuCount}
+                    </span>
+                  </div>
+                  {product.skuCount > 0 ? (
+                    <div className="mt-2 flex max-w-[260px] flex-wrap gap-1.5">
+                      {(product.skuList ?? []).map((sku) =>
+                        sku.optimizedImageUrl ? (
+                          <img
+                            key={sku.sku}
+                            src={sku.optimizedImageUrl}
+                            alt={sku.sku}
+                            title={`${sku.sku} · 已洗 ${sku.optimizedImageCount} 张`}
+                            referrerPolicy="no-referrer"
+                            className="size-9 rounded-md border border-emerald-200 bg-white object-cover shadow-sm"
+                          />
+                        ) : (
+                          <div
+                            key={sku.sku}
+                            title={`${sku.sku} · 尚未洗图`}
+                            className="grid size-9 place-items-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-[10px] text-slate-400"
+                          >
+                            待
+                          </div>
+                        )
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-[11px] text-slate-400">无 SKU</div>
+                  )}
+                </div>
               </td>
               <td className="p-3">{product.processingStatus}</td>
               <td className="p-3">{product.updatedAt}</td>
