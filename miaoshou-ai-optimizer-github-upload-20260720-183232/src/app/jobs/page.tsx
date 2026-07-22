@@ -94,6 +94,14 @@ export default async function JobsPage() {
     const settings = job.settings as Record<string, unknown>;
     return settings.operation === "image-regeneration";
   });
+  const syncJobs = recentJobs.filter((job) => {
+    const settings = job.settings as Record<string, unknown>;
+    return settings.operation === "miaoshou-sync";
+  });
+  const activeSyncJobs = syncJobs.filter((job) => runningStatuses.has(job.status) || job.status === "PENDING");
+  const finishedSyncJobs = syncJobs.filter((job) => !runningStatuses.has(job.status) && job.status !== "PENDING").slice(0, 10);
+  const syncSuccess = syncJobs.filter((job) => job.status === "COMPLETED").length;
+  const syncFailed = syncJobs.filter((job) => job.status === "FAILED").length;
   const activeImageJobs = imageJobs.filter((job) => runningStatuses.has(job.status) || job.status === "PENDING");
   const finishedImageJobs = imageJobs.filter((job) => !runningStatuses.has(job.status) && job.status !== "PENDING").slice(0, 10);
   const recentImageSuccess = imageJobs.reduce((sum, job) => sum + job.tasks.filter((task) => task.status === "COMPLETED").length, 0);
@@ -125,7 +133,7 @@ export default async function JobsPage() {
 
       <div className="grid gap-3 md:grid-cols-5">
         <StatCard label="全部商品" value={total} />
-        <StatCard label="正在处理" value={Math.max(running.length, activeImageTaskCount)} tone="blue" />
+        <StatCard label="正在处理" value={Math.max(running.length, activeImageTaskCount + activeSyncJobs.length)} tone="blue" />
         <StatCard label="待人工审核" value={waitingReview.length} tone="amber" />
         <StatCard label="已完成" value={completed.length} tone="green" />
         <StatCard label="失败" value={failed.length} tone="red" />
@@ -146,17 +154,37 @@ export default async function JobsPage() {
           <h2 className="text-lg font-semibold">正在做</h2>
           <span className="text-xs text-slate-500">每 5 秒自动刷新</span>
         </div>
-        {activeImageJobs.length > 0 || running.length > 0 ? (
+        {activeImageJobs.length > 0 || activeSyncJobs.length > 0 || running.length > 0 ? (
           <div className="grid gap-3">
             {activeImageJobs.map((job) => (
               <ImageJobItem key={job.id} job={job} />
             ))}
+            {activeSyncJobs.map((job) => <SaveJobItem key={job.id} job={job} />)}
             {running.map((row) => (
               <ProgressItem key={row.id} row={row} compact />
             ))}
           </div>
         ) : (
           <div className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">现在没有正在跑的任务。你去商品列表点“批量生成标题 / 批量洗图 / 批量保存”后，这里会显示当前进行中。</div>
+        )}
+      </section>
+
+      <section className="panel p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">保存到妙手结果</h2>
+            <p className="mt-1 text-sm text-slate-600">成功和失败按商品单独记录，失败会显示妙手返回原因。</p>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">成功 {syncSuccess}</span>
+            <span className="rounded-full bg-red-100 px-3 py-1 text-red-700">失败 {syncFailed}</span>
+            <JobsCheckButton />
+          </div>
+        </div>
+        {finishedSyncJobs.length > 0 ? (
+          <div className="grid gap-3">{finishedSyncJobs.map((job) => <SaveJobItem key={job.id} job={job} />)}</div>
+        ) : (
+          <div className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">还没有保存到妙手的结果。</div>
         )}
       </section>
 
@@ -192,6 +220,23 @@ export default async function JobsPage() {
           <div className="p-6 text-sm text-slate-600">还没有商品。先去“商品”页面导入妙手公共采集箱商品。</div>
         )}
       </section>
+    </div>
+  );
+}
+
+function SaveJobItem({ job }: { job: Awaited<ReturnType<typeof prisma.processingJob.findMany>>[number] & { tasks: Array<{ status: string; errorMessage: string | null }> } }) {
+  const task = job.tasks[0];
+  const failed = job.status === "FAILED";
+  const completed = job.status === "COMPLETED";
+  return (
+    <div className={`rounded-md border p-4 ${failed ? "border-red-200 bg-red-50" : completed ? "border-emerald-200 bg-emerald-50" : "border-blue-200 bg-blue-50"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-medium text-slate-900">{job.name}</span>
+        <span className={`rounded-full px-3 py-1 text-xs font-medium ${failed ? "bg-red-100 text-red-700" : completed ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>
+          {failed ? "保存失败" : completed ? "保存成功" : "正在保存"}
+        </span>
+      </div>
+      {task?.errorMessage ? <div className="mt-3 rounded-md border border-red-200 bg-white p-3 text-sm text-red-700">失败原因：{task.errorMessage}</div> : null}
     </div>
   );
 }
