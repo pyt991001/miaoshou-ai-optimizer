@@ -54,14 +54,70 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
       }
       if (dbProduct) {
         const records = [];
+        const failures: Array<{ imageId: string; message: string }> = [];
         const imagesToProcess = selectImagesForRegeneration(dbProduct.images, body.imageIds);
         for (const image of imagesToProcess) {
-          const originalPath = await prepareImageForOpenAI({ imageUrl: image.originalUrl, productId: dbProduct.id, imageId: image.id });
+          try {
+            const originalPath = await prepareImageForOpenAI({ imageUrl: image.originalUrl, productId: dbProduct.id, imageId: image.id });
+            const result = await withTimeout(
+              optimizeProductImage({
+                originalPath,
+                title: dbProduct.optimizedTitle ?? dbProduct.originalTitle,
+                category: dbProduct.category ?? undefined,
+                imageType: image.type,
+                ruleProfileId: body.ruleProfileId
+              }),
+              imageTimeoutMs,
+              "洗图超过 8 分钟仍未完成，已自动停止。请稍后重试，或检查图片 AI 模型/中转站通道。"
+            );
+            if (!result.optimizedUrl) throw new Error("图片 AI 返回成功，但没有生成优化图片地址。");
+            records.push(
+              await prisma.imageOptimization.create({
+                data: {
+                  productImageId: image.id,
+                  originalUrl: image.originalUrl,
+                  optimizedUrl: result.optimizedUrl,
+                  optimizedLocalPath: result.optimizedPath,
+                  openaiRequestId: result.requestId,
+                  model: result.model,
+                  prompt: result.prompt,
+                  imageType: image.type,
+                  processingMs: result.processingMs,
+                  apiCostUsd: result.costUsd,
+                  consistencyScore: result.validation.score,
+                  validationReport: result.validation as unknown as Prisma.InputJsonValue
+                }
+              })
+            );
+          } catch (error) {
+            const message = errorMessage(error);
+            failures.push({ imageId: image.id, message });
+            console.error("[image-regenerate] image failed", { productId: dbProduct.id, imageId: image.id, message });
+          }
+        }
+        if (records.length === 0) throw new Error(failures[0]?.message ?? "没有可洗的商品图片。");
+        return NextResponse.json({
+          ok: true,
+          type: "image",
+          storage: "database",
+          regenerated: records.length,
+          failed: failures.length,
+          failures,
+          optimizedUrls: records.map((record) => record.optimizedUrl).filter(Boolean),
+          message: failures.length ? `成功洗图 ${records.length} 张，失败 ${failures.length} 张；已保留成功结果。` : "图片已通过 OpenAI 洗图生成"
+        });
+      }
+      const optimizedByImageId: Record<string, string> = {};
+      const failures: Array<{ imageId: string; message: string }> = [];
+      const imagesToProcess = selectImagesForRegeneration(localProduct?.images ?? [], body.imageIds);
+      for (const image of imagesToProcess) {
+        try {
+          const originalPath = await prepareImageForOpenAI({ imageUrl: image.originalUrl, productId: product.id, imageId: image.id });
           const result = await withTimeout(
             optimizeProductImage({
               originalPath,
-              title: dbProduct.optimizedTitle ?? dbProduct.originalTitle,
-              category: dbProduct.category ?? undefined,
+              title: product.optimizedTitle ?? product.originalTitle,
+              category: product.category ?? undefined,
               imageType: image.type,
               ruleProfileId: body.ruleProfileId
             }),
@@ -69,53 +125,14 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
             "洗图超过 8 分钟仍未完成，已自动停止。请稍后重试，或检查图片 AI 模型/中转站通道。"
           );
           if (!result.optimizedUrl) throw new Error("图片 AI 返回成功，但没有生成优化图片地址。");
-          records.push(
-            await prisma.imageOptimization.create({
-              data: {
-                productImageId: image.id,
-                originalUrl: image.originalUrl,
-                optimizedUrl: result.optimizedUrl,
-                optimizedLocalPath: result.optimizedPath,
-                openaiRequestId: result.requestId,
-                model: result.model,
-                prompt: result.prompt,
-                imageType: image.type,
-                processingMs: result.processingMs,
-                apiCostUsd: result.costUsd,
-                consistencyScore: result.validation.score,
-                validationReport: result.validation as unknown as Prisma.InputJsonValue
-              }
-            })
-          );
+          optimizedByImageId[image.id] = result.optimizedUrl;
+        } catch (error) {
+          const message = errorMessage(error);
+          failures.push({ imageId: image.id, message });
+          console.error("[image-regenerate] local image failed", { productId, imageId: image.id, message });
         }
-        return NextResponse.json({
-          ok: true,
-          type: "image",
-          storage: "database",
-          regenerated: records.length,
-          optimizedUrls: records.map((record) => record.optimizedUrl).filter(Boolean),
-          message: "图片已通过 OpenAI 洗图生成"
-        });
       }
-      const optimizedByImageId: Record<string, string> = {};
-      const imagesToProcess = selectImagesForRegeneration(localProduct?.images ?? [], body.imageIds);
-      for (const image of imagesToProcess) {
-        const originalPath = await prepareImageForOpenAI({ imageUrl: image.originalUrl, productId: product.id, imageId: image.id });
-        const result = await withTimeout(
-          optimizeProductImage({
-            originalPath,
-            title: product.optimizedTitle ?? product.originalTitle,
-            category: product.category ?? undefined,
-            imageType: image.type,
-            ruleProfileId: body.ruleProfileId
-          }),
-          imageTimeoutMs,
-          "洗图超过 8 分钟仍未完成，已自动停止。请稍后重试，或检查图片 AI 模型/中转站通道。"
-        );
-        if (!result.optimizedUrl) throw new Error("图片 AI 返回成功，但没有生成优化图片地址。");
-        optimizedByImageId[image.id] = result.optimizedUrl;
-      }
-      if (Object.keys(optimizedByImageId).length === 0) throw new Error("没有可洗的商品图片。");
+      if (Object.keys(optimizedByImageId).length === 0) throw new Error(failures[0]?.message ?? "没有可洗的商品图片。");
       const updated = await updateLocalProductOptimizedImages(productId, optimizedByImageId);
       const verified = await findLocalProduct(productId);
       const regenerated = Object.keys(optimizedByImageId).length;
@@ -132,8 +149,10 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
         type: "image",
         storage: "local-file",
         regenerated,
+        failed: failures.length,
+        failures,
         optimizedUrls: verified?.images.filter((image) => optimizedByImageId[image.id]).map((image) => image.optimizedUrl).filter(Boolean) ?? [],
-        message: "图片已通过 OpenAI 洗图生成"
+        message: failures.length ? `成功洗图 ${regenerated} 张，失败 ${failures.length} 张；已保留成功结果。` : "图片已通过 OpenAI 洗图生成"
       });
     }
 
@@ -185,6 +204,7 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
     await updateLocalProductTitle(productId, result.optimizedTitle);
     return NextResponse.json({ ok: true, type: "title", storage: "local-file", optimizedTitle: result.optimizedTitle });
   } catch (error) {
+    console.error("[regenerate] request failed", { productId: currentProductId, message: errorMessage(error), stack: error instanceof Error ? error.stack : undefined });
     if (currentProductId && isLocalProduct) {
       const latest = await findLocalProduct(currentProductId).catch(() => null);
       const hasReturnedImage = latest?.images.some((image) => Boolean(image.optimizedUrl)) ?? false;
@@ -208,6 +228,10 @@ async function regenerate(request: NextRequest, context: { params: Promise<{ pro
       { status: 500 }
     );
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || "重新生成失败");
 }
 
 function selectImagesForRegeneration<T extends { id: string }>(images: T[], imageIds?: string[]): T[] {
