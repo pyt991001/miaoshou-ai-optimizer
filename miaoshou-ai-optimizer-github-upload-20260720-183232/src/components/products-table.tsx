@@ -384,7 +384,7 @@ async function waitForReturnedImages(productId: string, requestedImageIds: strin
 
   // Railway may close a long HTTP response while the server and image provider
   // continue working. Poll the database instead of submitting the image again.
-  for (let attempt = 0; attempt < 36; attempt += 1) {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
     await delay(10_000);
     const response = await fetch(`/api/miaoshou/products/${productId}`, { cache: "no-store" }).catch(() => null);
     if (!response?.ok) continue;
