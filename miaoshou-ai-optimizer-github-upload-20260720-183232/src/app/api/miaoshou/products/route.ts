@@ -44,11 +44,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const user = await requireUser();
+  const body = (await request.json().catch(() => ({}))) as { limit?: number };
+  const requestedLimit = Number(body.limit ?? 50);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 50));
   let result;
   try {
-    result = await runWithAccountConfig(user.id, () => createMiaoshouClient().listProducts({ page: 1, pageSize: 50 }));
+    result = await runWithAccountConfig(user.id, () => createMiaoshouClient().listProducts({ page: 1, pageSize: limit }));
   } catch (error) {
     return NextResponse.json(
       {
@@ -72,12 +75,13 @@ export async function POST() {
     for (const item of result.products) {
       products.push(await upsertMiaoshouProduct(item, user.id));
     }
-    return NextResponse.json({ ok: true, imported: products.length, available: result.total, products, storage: "database" });
+    return NextResponse.json({ ok: true, requested: limit, imported: products.length, available: result.total, products, storage: "database" });
   } catch (databaseError) {
     try {
       const products = await importMiaoshouProductsLocally(result.products);
       return NextResponse.json({
         ok: true,
+        requested: limit,
         imported: products.length,
         available: result.total,
         products,
