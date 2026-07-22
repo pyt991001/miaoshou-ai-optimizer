@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { JobsAutoRefresh } from "@/components/jobs-auto-refresh";
+import { JobsCheckButton } from "@/components/jobs-check-button";
 import { prisma } from "@/lib/db/prisma";
 import { requirePageUser } from "@/lib/auth/session";
 
@@ -94,6 +95,9 @@ export default async function JobsPage() {
     return settings.operation === "image-regeneration";
   });
   const activeImageJobs = imageJobs.filter((job) => runningStatuses.has(job.status) || job.status === "PENDING");
+  const finishedImageJobs = imageJobs.filter((job) => !runningStatuses.has(job.status) && job.status !== "PENDING").slice(0, 10);
+  const recentImageSuccess = imageJobs.reduce((sum, job) => sum + job.tasks.filter((task) => task.status === "COMPLETED").length, 0);
+  const recentImageFailed = imageJobs.reduce((sum, job) => sum + job.tasks.filter((task) => task.status === "FAILED").length, 0);
   const activeImageTaskCount = activeImageJobs.reduce(
     (sum, job) => sum + job.tasks.filter((task) => task.status === "PENDING" || runningStatuses.has(task.status)).length,
     0
@@ -108,9 +112,15 @@ export default async function JobsPage() {
           <h1 className="text-2xl font-semibold">任务进度</h1>
           <p className="mt-1 text-sm text-slate-600">自动刷新；这里显示商品做到哪一步、哪些正在处理、哪些需要你审核。</p>
         </div>
-        <Link className="rounded-md bg-slate-700 px-4 py-2 text-sm text-white" href="/products">
-          回商品列表
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <JobsCheckButton />
+          <Link className="rounded-md bg-slate-700 px-4 py-2 text-sm text-white" href="/products">回商品列表</Link>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <StatCard label="近期洗图成功" value={recentImageSuccess} tone="green" />
+        <StatCard label="近期洗图失败" value={recentImageFailed} tone="red" />
       </div>
 
       <div className="grid gap-3 md:grid-cols-5">
@@ -150,6 +160,23 @@ export default async function JobsPage() {
         )}
       </section>
 
+      <section className="panel p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">最近洗图结果</h2>
+            <p className="mt-1 text-sm text-slate-600">保留最近 10 批任务，可查看每批成功和失败数量。</p>
+          </div>
+          <JobsCheckButton />
+        </div>
+        {finishedImageJobs.length > 0 ? (
+          <div className="grid gap-3">
+            {finishedImageJobs.map((job) => <ImageJobItem key={job.id} job={job} />)}
+          </div>
+        ) : (
+          <div className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">还没有已结束的洗图任务。</div>
+        )}
+      </section>
+
       <section className="panel overflow-hidden">
         <div className="border-b border-line p-4">
           <h2 className="text-lg font-semibold">商品处理明细</h2>
@@ -177,11 +204,16 @@ function ImageJobItem({ job }: { job: Awaited<ReturnType<typeof prisma.processin
   const total = job.tasks.length || job.totalProducts;
   const progress = total ? Math.round(((completed + failed) / total) * 100) : 0;
   const firstError = job.tasks.find((task) => task.errorMessage)?.errorMessage;
+  const isFinished = !runningStatuses.has(job.status) && job.status !== "PENDING";
+  const resultText = job.status === "COMPLETED" ? "全部成功" : job.status === "FAILED" ? "全部失败" : job.status === "PARTIALLY_COMPLETED" ? "部分完成" : "处理中";
   return (
-    <div className="rounded-md border border-blue-200 bg-blue-50/40 p-4">
+    <div className={`rounded-md border p-4 ${isFinished ? (failed > 0 ? "border-amber-200 bg-amber-50/40" : "border-emerald-200 bg-emerald-50/40") : "border-blue-200 bg-blue-50/40"}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="font-medium text-slate-900">{job.name}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-slate-900">{job.name}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${failed > 0 ? "bg-red-100 text-red-700" : isFinished ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{resultText}</span>
+          </div>
           <div className="mt-1 text-sm text-slate-600">
             共 {total} 张 · 正在请求 {processing} · 等待 {waiting} · 成功 {completed} · 失败 {failed}
           </div>
